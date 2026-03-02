@@ -116,14 +116,17 @@ function App() {
     }
   };
 
-  const handleCreateProject = async ({ name, description, moduleName }) => {
+  const handleCreateProject = async ({ name, description, moduleName, systems = [], modules = [], authProfiles = [] }) => {
     if (!name) return;
     try {
       const newProj = await api.createProject({
         name,
         description: description || "New Workspace",
         settings: { categories: [], channels: { northbound: [], southbound: [] } },
-        moduleName // Optional initial module
+        moduleName, // Optional initial module (legacy)
+        systems,    // Array of system names from wizard
+        modules,    // Array of module names from wizard
+        authProfiles // Array of auth profile stubs from wizard
       });
       setProjects([...projects, newProj]);
     } catch (e) {

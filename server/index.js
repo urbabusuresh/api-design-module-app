@@ -4,6 +4,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const fs = require('fs');
 const path = require('path');
+const rateLimit = require('express-rate-limit');
 const {
     publishApiToWso2, listApisFromWso2, getApiSwaggerFromWso2,
     getApiLifecycleState, changeApiLifecycleState, getApiSubscriptions, getSubscriptionPolicies,
@@ -18,6 +19,15 @@ const {
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
+
+// Rate limiter for mutating project routes (prevent abuse)
+const projectMutationLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 50,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests, please try again later.' }
+});
 
 const dbConfig = {
     host: 'localhost',
@@ -151,8 +161,8 @@ app.get('/api/projects', async (req, res) => {
 });
 
 // Create Project
-app.post('/api/projects', async (req, res) => {
-    const { name, description, settings, moduleName } = req.body;
+app.post('/api/projects', projectMutationLimiter, async (req, res) => {
+    const { name, description, settings, moduleName, systems = [], modules = [], authProfiles = [] } = req.body;
     const id = generateId('proj');
     try {
         // Insert Project
@@ -163,7 +173,6 @@ app.post('/api/projects', async (req, res) => {
             const values = [];
             const add = (type, list) => {
                 if (Array.isArray(list)) list.forEach((val, idx) =>
-                    // ID removed for Auto Inc
                     values.push([id, type, val, '', idx])
                 );
             };
@@ -173,16 +182,44 @@ app.post('/api/projects', async (req, res) => {
             add('MARKET_SEGMENT', settings.marketSegments);
 
             if (values.length > 0) {
-                // ID removed from column list
                 await pool.query('INSERT INTO project_lov (project_id, type, value, description, display_order) VALUES ?', [values]);
             }
         }
 
-        // Create initial Module if provided
+        // Create initial Module if provided (legacy single moduleName)
         if (moduleName) {
             const moduleId = generateId('mod');
             await pool.query('INSERT INTO project_modules (id, project_id, name, status) VALUES (?, ?, ?, ?)',
                 [moduleId, id, moduleName, 'Active']);
+        }
+
+        // Create wizard-defined Systems
+        for (const sysName of systems) {
+            if (sysName && sysName.trim()) {
+                const sysId = generateId('sys');
+                await pool.query('INSERT INTO systems (id, project_id, name) VALUES (?, ?, ?)',
+                    [sysId, id, sysName.trim()]);
+            }
+        }
+
+        // Create wizard-defined Modules
+        for (const modName of modules) {
+            if (modName && modName.trim()) {
+                const moduleId = generateId('mod');
+                await pool.query('INSERT INTO project_modules (id, project_id, name, status) VALUES (?, ?, ?, ?)',
+                    [moduleId, id, modName.trim(), 'Active']);
+            }
+        }
+
+        // Create wizard-defined Auth Profiles (name + type stubs)
+        for (const profile of authProfiles) {
+            if (profile && profile.name) {
+                const authId = generateId('auth');
+                await pool.query(
+                    'INSERT INTO auth_profiles (id, project_id, name, type, details) VALUES (?, ?, ?, ?, ?)',
+                    [authId, id, profile.name, profile.type || 'Bearer', JSON.stringify({})]
+                ).catch(e => { console.warn('Auth profile insert skipped (table may not exist):', e.message); });
+            }
         }
 
         res.json({ id, name, description, settings });
