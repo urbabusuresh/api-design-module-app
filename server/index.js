@@ -118,6 +118,23 @@ initDb();
 // --- HELPERS ---
 const generateId = (prefix) => `${prefix}_${Date.now()}`;
 
+// Simple in-memory rate limiter (per IP, sliding window)
+const rateLimitStore = new Map();
+function rateLimit(maxRequests, windowMs) {
+    return (req, res, next) => {
+        const key = req.ip || req.connection.remoteAddress || 'unknown';
+        const now = Date.now();
+        const entry = rateLimitStore.get(key) || { count: 0, resetAt: now + windowMs };
+        if (now > entry.resetAt) { entry.count = 0; entry.resetAt = now + windowMs; }
+        entry.count += 1;
+        rateLimitStore.set(key, entry);
+        if (entry.count > maxRequests) {
+            return res.status(429).json({ error: 'Too many requests, please try again later.' });
+        }
+        next();
+    };
+}
+
 // --- ROUTES ---
 
 // Get All Projects (Summary)
@@ -524,7 +541,7 @@ app.post('/api/sub-apis', async (req, res) => {
 });
 
 // LLD Export: Generate structured Low-Level Design document for a project
-app.get('/api/projects/:id/lld-export', async (req, res) => {
+app.get('/api/projects/:id/lld-export', rateLimit(10, 60 * 1000), async (req, res) => {
     const { id } = req.params;
     try {
         const [projects] = await pool.query('SELECT * FROM projects WHERE id = ?', [id]);
