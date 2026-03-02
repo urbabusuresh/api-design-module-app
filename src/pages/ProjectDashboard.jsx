@@ -1080,6 +1080,129 @@ function ChannelsEditor({ localApi, setLocalApi, projectSettings }) {
     );
 }
 
+// NB→SB Mapping Matrix View
+function NbSbMappingView({ project, onExportLLD }) {
+    const allApis = project.systems?.flatMap(s =>
+        s.rootApis?.flatMap(r => r.subApis?.map(a => ({
+            ...a,
+            serviceName: r.name,
+            systemName: s.name
+        }))) || []
+    ) || [];
+
+    const mappedApis = allApis.filter(a =>
+        (a.consumers && a.consumers.length > 0) || (a.downstream && a.downstream.length > 0)
+    );
+
+    const nbChannels = [...new Set(allApis.flatMap(a => (a.consumers || []).map(c => c.name)))];
+    const sbSystems = [...new Set(allApis.flatMap(a => (a.downstream || []).map(d => d.providerSystem || d.name).filter(Boolean)))];
+
+    return (
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            <div className="flex items-center justify-between">
+                <div>
+                    <h2 className="text-2xl font-bold text-white">NB → SB Mapping</h2>
+                    <p className="text-slate-400 text-sm mt-1">Northbound consumer to southbound provider mapping across all APIs</p>
+                </div>
+                <button
+                    onClick={onExportLLD}
+                    className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold shadow-lg shadow-indigo-500/20 transition-all active:scale-95"
+                >
+                    <FileText className="w-4 h-4" />
+                    <span>Export LLD JSON</span>
+                </button>
+            </div>
+
+            {/* Summary Cards */}
+            <div className="grid grid-cols-3 gap-4">
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+                    <div className="text-xs font-bold text-slate-500 uppercase mb-1">Total APIs</div>
+                    <div className="text-3xl font-bold text-white">{allApis.length}</div>
+                </div>
+                <div className="bg-slate-900 border border-indigo-500/20 rounded-xl p-4">
+                    <div className="text-xs font-bold text-indigo-400 uppercase mb-1">NB Channels</div>
+                    <div className="text-3xl font-bold text-indigo-400">{nbChannels.length}</div>
+                    <div className="text-xs text-slate-500 mt-1 truncate">{nbChannels.join(', ') || '—'}</div>
+                </div>
+                <div className="bg-slate-900 border border-emerald-500/20 rounded-xl p-4">
+                    <div className="text-xs font-bold text-emerald-400 uppercase mb-1">SB Systems</div>
+                    <div className="text-3xl font-bold text-emerald-400">{sbSystems.length}</div>
+                    <div className="text-xs text-slate-500 mt-1 truncate">{sbSystems.join(', ') || '—'}</div>
+                </div>
+            </div>
+
+            {/* Mapping Table */}
+            {mappedApis.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-slate-800 rounded-2xl text-slate-500">
+                    <Share2 className="w-12 h-12 mb-4 opacity-20" />
+                    <p className="text-lg font-medium">No mappings yet</p>
+                    <p className="text-sm">Add NB channels and downstream SB APIs to each endpoint to see the mapping here.</p>
+                </div>
+            ) : (
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+                    <div className="px-6 py-3 border-b border-slate-800 bg-slate-900/80">
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{mappedApis.length} Mapped APIs</span>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="border-b border-slate-800 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                    <th className="px-4 py-3 text-left">API</th>
+                                    <th className="px-4 py-3 text-left">Service / System</th>
+                                    <th className="px-4 py-3 text-left">Method</th>
+                                    <th className="px-4 py-3 text-left">NB Consumers</th>
+                                    <th className="px-4 py-3 text-left">SB Providers</th>
+                                    <th className="px-4 py-3 text-left">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {mappedApis.map((a, idx) => (
+                                    <tr key={a.id} className={`border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors ${idx % 2 === 0 ? '' : 'bg-slate-900/30'}`}>
+                                        <td className="px-4 py-3">
+                                            <div className="font-medium text-white">{a.name}</div>
+                                            <div className="text-xs text-slate-500 font-mono truncate max-w-[200px]">{a.url}</div>
+                                        </td>
+                                        <td className="px-4 py-3">
+                                            <div className="text-slate-300">{a.serviceName}</div>
+                                            <div className="text-xs text-slate-500">{a.systemName}</div>
+                                        </td>
+                                        <td className="px-4 py-3">
+                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${a.method === 'GET' ? 'bg-emerald-500/10 text-emerald-400' : a.method === 'POST' ? 'bg-blue-500/10 text-blue-400' : a.method === 'DELETE' ? 'bg-red-500/10 text-red-400' : 'bg-amber-500/10 text-amber-400'}`}>{a.method}</span>
+                                        </td>
+                                        <td className="px-4 py-3">
+                                            <div className="flex flex-wrap gap-1">
+                                                {(a.consumers || []).length === 0
+                                                    ? <span className="text-slate-600 text-xs">—</span>
+                                                    : (a.consumers || []).map(c => (
+                                                        <span key={c.name} className="px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[10px] rounded-full font-medium">{c.name}</span>
+                                                    ))
+                                                }
+                                            </div>
+                                        </td>
+                                        <td className="px-4 py-3">
+                                            <div className="flex flex-wrap gap-1">
+                                                {(a.downstream || []).length === 0
+                                                    ? <span className="text-slate-600 text-xs">—</span>
+                                                    : (a.downstream || []).map(d => (
+                                                        <span key={d.id || d.name} className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[10px] rounded-full font-medium">{d.providerSystem || d.name}</span>
+                                                    ))
+                                                }
+                                            </div>
+                                        </td>
+                                        <td className="px-4 py-3">
+                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${a.status === 'Active' || a.status === 'Published' ? 'bg-emerald-500/10 text-emerald-400' : a.status === 'Draft' ? 'bg-amber-500/10 text-amber-400' : 'bg-slate-700 text-slate-400'}`}>{a.status}</span>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 // Main Workspace Component (The Dashboard)
 export default function ProjectDashboard({ project, onBack, onRefresh }) {
     const [currentView, setCurrentView] = useState('dashboard'); // dashboard, settings
@@ -1333,6 +1456,13 @@ export default function ProjectDashboard({ project, onBack, onRefresh }) {
 
                 <div className="p-2 border-t border-slate-800">
                     <button
+                        onClick={() => { setSelectedAuthView(false); setSelectedModuleId(null); setSelectedSystemId(null); setCurrentView('nbsbMap'); }}
+                        className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors mb-1 ${currentView === 'nbsbMap' ? 'bg-indigo-600/10 text-indigo-400' : 'hover:bg-slate-800 text-slate-400'}`}
+                    >
+                        <Share2 className="w-4 h-4" />
+                        <span className="text-sm font-medium">NB→SB Map</span>
+                    </button>
+                    <button
                         onClick={() => setCurrentView('settings')}
                         className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'settings' ? 'bg-indigo-600/10 text-indigo-400' : 'hover:bg-slate-800 text-slate-400'}`}
                     >
@@ -1348,6 +1478,21 @@ export default function ProjectDashboard({ project, onBack, onRefresh }) {
                     <ProjectSettings settings={project.settings} onUpdate={handleUpdateSettings} />
                 ) : currentView === 'testLogs' ? (
                     <TestLogsManager project={project} />
+                ) : currentView === 'nbsbMap' ? (
+                    <NbSbMappingView project={project} onExportLLD={async () => {
+                        try {
+                            const lld = await api.getLLDExport(project.id);
+                            const blob = new Blob([JSON.stringify(lld, null, 2)], { type: 'application/json' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `${project.name.replace(/\s+/g, '_')}_LLD_${new Date().toISOString().slice(0, 10)}.json`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                        } catch (e) {
+                            alert('LLD Export failed: ' + e.message);
+                        }
+                    }} />
                 ) : selectedAuthView ? (
                     <AuthProfilesManager project={project} onRefresh={onRefresh} />
                 ) : selectedModuleId && activeModule ? (

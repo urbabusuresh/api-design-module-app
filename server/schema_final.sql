@@ -11,7 +11,6 @@ CREATE TABLE IF NOT EXISTS projects (
     id VARCHAR(50) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
-    description TEXT,
     status VARCHAR(50) DEFAULT 'Active',
     type VARCHAR(20) DEFAULT 'LOCAL', -- 'LOCAL' or 'WSO2_REMOTE'
     connection_details JSON, -- Stores { url, env, auth... }
@@ -102,6 +101,7 @@ CREATE TABLE IF NOT EXISTS api_catalog (
     swagger_api_name VARCHAR(255),
     design_doc VARCHAR(255),
     reference_link VARCHAR(255),
+    remarks TEXT,
     
     -- Audit
     created_by VARCHAR(100),

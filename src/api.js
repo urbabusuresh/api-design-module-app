@@ -302,5 +302,11 @@ export const api = {
         const res = await fetch(`${API_URL}/wso2/project/${projectId}/apis/${apiId}/lifecycle-history`);
         if (!res.ok) throw new Error("Failed to fetch lifecycle history");
         return res.json();
+    },
+    // LLD Export
+    getLLDExport: async (projectId) => {
+        const res = await fetch(`${API_URL}/projects/${projectId}/lld-export`);
+        if (!res.ok) throw new Error('Failed to generate LLD export');
+        return res.json();
     }
 };
