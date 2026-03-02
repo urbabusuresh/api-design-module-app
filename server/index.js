@@ -4,6 +4,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const fs = require('fs');
 const path = require('path');
+const rateLimit = require('express-rate-limit');
 const {
     publishApiToWso2, listApisFromWso2, getApiSwaggerFromWso2,
     getApiLifecycleState, changeApiLifecycleState, getApiSubscriptions, getSubscriptionPolicies,
@@ -18,6 +19,15 @@ const {
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
+
+// Rate limiter for mutating project routes (prevent abuse)
+const projectMutationLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 50,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests, please try again later.' }
+});
 
 const dbConfig = {
     host: 'localhost',
@@ -151,7 +161,7 @@ app.get('/api/projects', async (req, res) => {
 });
 
 // Create Project
-app.post('/api/projects', async (req, res) => {
+app.post('/api/projects', projectMutationLimiter, async (req, res) => {
     const { name, description, settings, moduleName, systems = [], modules = [], authProfiles = [] } = req.body;
     const id = generateId('proj');
     try {
@@ -208,7 +218,7 @@ app.post('/api/projects', async (req, res) => {
                 await pool.query(
                     'INSERT INTO auth_profiles (id, project_id, name, type, details) VALUES (?, ?, ?, ?, ?)',
                     [authId, id, profile.name, profile.type || 'Bearer', JSON.stringify({})]
-                ).catch(() => { /* ignore if table missing */ });
+                ).catch(e => { console.warn('Auth profile insert skipped (table may not exist):', e.message); });
             }
         }
 
