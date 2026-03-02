@@ -1087,6 +1087,14 @@ function ChannelsEditor({ localApi, setLocalApi, projectSettings }) {
     );
 }
 
+const NB_SB_AUTH_COLORS = {
+    'None': 'bg-slate-700/50 text-slate-400',
+    'Bearer': 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
+    'Basic': 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
+    'OAuth2': 'bg-violet-500/10 text-violet-400 border border-violet-500/20',
+    'API Key': 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
+};
+
 // NB→SB Mapping Matrix View
 function NbSbMappingView({ project, onExportLLD }) {
     const [filterNb, setFilterNb] = useState('All');
@@ -1121,14 +1129,6 @@ function NbSbMappingView({ project, onExportLLD }) {
         if (filterSb !== 'All' && !(a.downstream || []).some(d => (d.providerSystem || d.name) === filterSb)) return false;
         return true;
     });
-
-    const AUTH_COLORS = {
-        'None': 'bg-slate-700/50 text-slate-400',
-        'Bearer': 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
-        'Basic': 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
-        'OAuth2': 'bg-violet-500/10 text-violet-400 border border-violet-500/20',
-        'API Key': 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
-    };
 
     return (
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
@@ -1173,7 +1173,7 @@ function NbSbMappingView({ project, onExportLLD }) {
                         {Object.keys(authTypeCounts).length === 0 ? (
                             <span className="text-slate-600 text-xs">—</span>
                         ) : Object.entries(authTypeCounts).map(([type, count]) => (
-                            <span key={type} className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${AUTH_COLORS[type] || AUTH_COLORS['None']}`}>{type}×{count}</span>
+                            <span key={type} className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${NB_SB_AUTH_COLORS[type] || NB_SB_AUTH_COLORS['None']}`}>{type}×{count}</span>
                         ))}
                     </div>
                 </div>
@@ -1256,7 +1256,7 @@ function NbSbMappingView({ project, onExportLLD }) {
                                                         <div key={d.id || d.name} className="flex items-center gap-1.5 flex-wrap">
                                                             <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[10px] rounded-full font-medium">{d.providerSystem || d.name}</span>
                                                             {d.authType && d.authType !== 'None' && (
-                                                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${AUTH_COLORS[d.authType] || AUTH_COLORS['None']}`}>
+                                                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${NB_SB_AUTH_COLORS[d.authType] || NB_SB_AUTH_COLORS['None']}`}>
                                                                     <Lock className="w-2.5 h-2.5 inline mr-0.5" />{d.authType}
                                                                 </span>
                                                             )}
