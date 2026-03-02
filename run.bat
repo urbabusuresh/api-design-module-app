@@ -1,0 +1,3 @@
+@echo off
+echo Starting RaptrDXP API Dashboard (Frontend + Backend)...
+npm start

@@ -1,0 +1,3 @@
+@echo off
+echo Starting RaptrDXP API Dashboard as Desktop App...
+npm run electron:dev
