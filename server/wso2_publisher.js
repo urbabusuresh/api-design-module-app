@@ -805,6 +805,135 @@ module.exports = {
     getClientCertificates,
     getEndpointCertificates,
     // Lifecycle History
-    getLifecycleHistory
+    getLifecycleHistory,
+    // Smart Launch & Promotion
+    smartLaunch,
+    promoteApiToEnv
 };
+
+// ============ SMART LAUNCH ============
+// Creates API, adds default documentation, applies standard policy, then publishes.
+async function smartLaunch(apiData, downstreamUrl, config = {}) {
+    const cfg = getSanitizedConfig(config);
+    const token = await getAccessToken(cfg);
+
+    // 1. Create the API
+    // Sanitize name: remove all non-alphanumeric characters
+    const apiName = apiData.api_name.replace(/[^a-zA-Z0-9]/g, '');
+    if (!apiName) throw new Error('Smart Launch: API name is empty after sanitization; please use alphanumeric characters in the API name.');
+    const context = `/${apiName.toLowerCase()}`;
+    const version = apiData.api_version || '1.0.0';
+
+    const payload = {
+        name: apiName,
+        context,
+        version,
+        description: apiData.description || 'Created via Smart Launch',
+        provider: cfg.username || 'admin',
+        lifeCycleStatus: 'CREATED',
+        responseCachingEnabled: false,
+        isDefaultVersion: false,
+        type: 'HTTP',
+        transport: ['http', 'https'],
+        policies: ['Unlimited'],
+        securityScheme: ['oauth2'],
+        visibility: 'PUBLIC',
+        endpointConfig: {
+            endpoint_type: 'http',
+            sandbox_endpoints: { url: downstreamUrl },
+            production_endpoints: { url: downstreamUrl }
+        },
+        operations: [{
+            target: apiData.url || '/*',
+            verb: apiData.http_method || 'GET',
+            authType: 'Application & Application User',
+            throttlingPolicy: 'Unlimited'
+        }]
+    };
+
+    const createResp = await fetch(`${cfg.baseUrl}${cfg.publisherApiUrl}/apis`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    if (!createResp.ok) {
+        const txt = await createResp.text();
+        throw new Error(`Smart Launch - Create Failed: ${createResp.status} ${txt}`);
+    }
+    const createdApi = await createResp.json();
+    const wso2ApiId = createdApi.id;
+
+    // 2. Add default documentation
+    try {
+        await fetch(`${cfg.baseUrl}${cfg.publisherApiUrl}/apis/${wso2ApiId}/documents`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: 'Overview',
+                type: 'HOWTO',
+                summary: `Auto-generated documentation for ${apiName} ${version}`,
+                sourceType: 'INLINE',
+                visibility: 'API_LEVEL',
+                inlineContent: `## ${apiName}\n\n${apiData.description || 'API created via RaptrDXP Smart Launch.'}\n\n**Version:** ${version}\n**Endpoint:** ${downstreamUrl}`
+            })
+        });
+    } catch (docErr) {
+        console.warn('[SmartLaunch] Doc creation failed (non-fatal):', docErr.message);
+    }
+
+    // 3. Publish the API
+    const pubResp = await fetch(
+        `${cfg.baseUrl}${cfg.publisherApiUrl}/apis/change-lifecycle?apiId=${wso2ApiId}&action=Publish`,
+        { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } }
+    );
+    const publishStatus = pubResp.ok ? 'Published' : 'Created (Publish Failed)';
+
+    return { wso2Id: wso2ApiId, status: publishStatus, context };
+}
+
+// ============ ENVIRONMENT PROMOTION ============
+// Reads an API's swagger from the source WSO2 and recreates it in the target WSO2.
+async function promoteApiToEnv(wso2ApiId, sourceConfig, targetConfig) {
+    const srcCfg = getSanitizedConfig(sourceConfig);
+    const tgtCfg = getSanitizedConfig(targetConfig);
+
+    // 1. Fetch full API details from source
+    const srcToken = await getAccessToken(srcCfg);
+    const detailResp = await fetch(`${srcCfg.baseUrl}${srcCfg.publisherApiUrl}/apis/${wso2ApiId}`, {
+        headers: { 'Authorization': `Bearer ${srcToken}` }
+    });
+    if (!detailResp.ok) throw new Error(`Promote: Failed to fetch source API details (${detailResp.status})`);
+    const srcApi = await detailResp.json();
+
+    // Strip source-specific fields (id, timestamps, lifecycle) before recreating in target environment
+    // eslint-disable-next-line no-unused-vars
+    const { id: _sourceId, createdTime, lastUpdatedTime, lifeCycleStatus, ...apiPayload } = srcApi;
+    apiPayload.lifeCycleStatus = 'CREATED';
+    apiPayload.provider = tgtCfg.username || 'admin';
+
+    // 2. Recreate API in target environment
+    const tgtToken = await getAccessToken(tgtCfg);
+
+    const createResp = await fetch(`${tgtCfg.baseUrl}${tgtCfg.publisherApiUrl}/apis`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${tgtToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(apiPayload)
+    });
+    if (!createResp.ok) {
+        const txt = await createResp.text();
+        // 409 = already exists, treat as success
+        if (createResp.status !== 409) throw new Error(`Promote: Target create failed (${createResp.status}) ${txt}`);
+        return { status: 'AlreadyExists', targetEnv: tgtCfg.baseUrl };
+    }
+    const promoted = await createResp.json();
+
+    // 3. Publish in target
+    await fetch(
+        `${tgtCfg.baseUrl}${tgtCfg.publisherApiUrl}/apis/change-lifecycle?apiId=${promoted.id}&action=Publish`,
+        { method: 'POST', headers: { 'Authorization': `Bearer ${tgtToken}` } }
+    );
+
+    return { status: 'Promoted', targetApiId: promoted.id, targetEnv: tgtCfg.baseUrl };
+}
+
 

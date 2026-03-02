@@ -8,6 +8,7 @@ import SubscriptionsPanel from './SubscriptionsPanel.jsx';
 import AnalyticsPanel from './AnalyticsPanel.jsx';
 import DocumentationViewer from './DocumentationViewer.jsx';
 import PoliciesPanel from './PoliciesPanel.jsx';
+import AdvancedTestPanel from './AdvancedTestPanel.jsx';
 
 const ApiDetailPanel = ({ apiItem, project, onClose }) => {
     const [activeTab, setActiveTab] = useState('overview');
@@ -123,6 +124,13 @@ const ApiDetailPanel = ({ apiItem, project, onClose }) => {
                             }`}
                     >
                         Policies
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('test')}
+                        className={`px-4 py-2 text-sm font-bold border-b-2 transition-colors ${activeTab === 'test' ? 'border-emerald-500 text-white' : 'border-transparent text-slate-400 hover:text-slate-200'
+                            }`}
+                    >
+                        Test
                     </button>
                 </div>
 
@@ -244,6 +252,10 @@ const ApiDetailPanel = ({ apiItem, project, onClose }) => {
 
                     {activeTab === 'policies' && (
                         <PoliciesPanel apiItem={apiItem} project={project} />
+                    )}
+
+                    {activeTab === 'test' && (
+                        <AdvancedTestPanel apiItem={apiItem} project={project} />
                     )}
                 </div>
 

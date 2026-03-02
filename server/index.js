@@ -106,6 +106,8 @@ async function initDb() {
 
         await ensureColumn('systems', 'status', "VARCHAR(50) DEFAULT 'Active'");
         await ensureColumn('services', 'status', "VARCHAR(50) DEFAULT 'Active'");
+        await ensureColumn('api_catalog', 'remarks', "TEXT");
+        await ensureColumn('api_catalog', 'design_metadata', "JSON");
 
     } catch (err) {
         console.error('Database Initialization Failed:', err);
@@ -116,6 +118,23 @@ initDb();
 
 // --- HELPERS ---
 const generateId = (prefix) => `${prefix}_${Date.now()}`;
+
+// Simple in-memory rate limiter (per IP, sliding window)
+const rateLimitStore = new Map();
+function rateLimit(maxRequests, windowMs) {
+    return (req, res, next) => {
+        const key = req.ip || req.connection.remoteAddress || 'unknown';
+        const now = Date.now();
+        const entry = rateLimitStore.get(key) || { count: 0, resetAt: now + windowMs };
+        if (now > entry.resetAt) { entry.count = 0; entry.resetAt = now + windowMs; }
+        entry.count += 1;
+        rateLimitStore.set(key, entry);
+        if (entry.count > maxRequests) {
+            return res.status(429).json({ error: 'Too many requests, please try again later.' });
+        }
+        next();
+    };
+}
 
 // --- ROUTES ---
 
@@ -329,6 +348,16 @@ app.get('/api/projects/:id', async (req, res) => {
                         swaggerApiName: api.swagger_api_name,
                         designDoc: api.design_doc,
                         referenceLink: api.reference_link,
+                        remarks: api.remarks || '',
+                        designMetadata: (() => {
+                            try {
+                                return typeof api.design_metadata === 'string'
+                                    ? JSON.parse(api.design_metadata)
+                                    : (api.design_metadata || null);
+                            } catch (_) {
+                                return null;
+                            }
+                        })(),
                         createdBy: api.created_by,
                         updatedBy: api.updated_by
                     };
@@ -457,6 +486,8 @@ app.post('/api/sub-apis', async (req, res) => {
         swagger_api_name: api.swaggerApiName,
         design_doc: api.designDoc,
         reference_link: api.referenceLink,
+        remarks: api.remarks || null,
+        design_metadata: api.designMetadata ? JSON.stringify(api.designMetadata) : null,
 
         // Convert frontend consumers/downstream back to channels JSON
         // FIX: Do NOT put downstream dependencies in 'southbound' channels array anymore, as we use api_dependencies table now.
@@ -520,6 +551,133 @@ app.post('/api/sub-apis', async (req, res) => {
     }
 });
 
+// Update Design Metadata for an API endpoint (NB→SB field mapping)
+app.put('/api/sub-apis/:id/design-metadata', rateLimit(30, 60 * 1000), async (req, res) => {
+    const { id } = req.params;
+    const { designMetadata } = req.body;
+    try {
+        await pool.query('UPDATE api_catalog SET design_metadata = ? WHERE id = ?',
+            [JSON.stringify(designMetadata), id]);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// LLD Export: Generate structured Low-Level Design document for a project
+app.get('/api/projects/:id/lld-export', rateLimit(10, 60 * 1000), async (req, res) => {
+    const { id } = req.params;
+    try {
+        const [projects] = await pool.query('SELECT * FROM projects WHERE id = ?', [id]);
+        if (projects.length === 0) return res.status(404).json({ error: 'Project not found' });
+        const project = projects[0];
+
+        const [systems] = await pool.query("SELECT * FROM systems WHERE project_id = ? AND (status != 'Deleted' OR status IS NULL)", [id]);
+        const systemIds = systems.map(s => s.id);
+
+        let services = [];
+        if (systemIds.length > 0) {
+            [services] = await pool.query("SELECT * FROM services WHERE system_id IN (?) AND (status != 'Deleted' OR status IS NULL)", [systemIds]);
+        }
+        const serviceIds = services.map(s => s.id);
+
+        let apis = [];
+        if (serviceIds.length > 0) {
+            [apis] = await pool.query('SELECT * FROM api_catalog WHERE service_id IN (?)', [serviceIds]);
+            const apiIds = apis.map(a => a.id);
+            if (apiIds.length > 0) {
+                const [deps] = await pool.query(`
+                    SELECT d.*, c.api_name, c.url, c.http_method, c.provider_system
+                    FROM api_dependencies d
+                    JOIN api_catalog c ON d.child_api_id = c.id
+                    WHERE d.parent_api_id IN (?)`, [apiIds]);
+                apis.forEach(api => { api._dependencies = deps.filter(d => d.parent_api_id === api.id); });
+            }
+        }
+
+        // Build LLD Document
+        const lld = {
+            document_type: 'LLD_API_SPEC',
+            generated_at: new Date().toISOString(),
+            project: { id: project.id, name: project.name, description: project.description },
+            summary: {
+                total_systems: systems.length,
+                total_services: services.length,
+                total_apis: apis.length
+            },
+            systems: systems.map(sys => ({
+                id: sys.id,
+                name: sys.name,
+                status: sys.status,
+                services: services.filter(svc => svc.system_id === sys.id).map(svc => ({
+                    id: svc.id,
+                    name: svc.name,
+                    version: svc.version,
+                    description: svc.description,
+                    status: svc.status,
+                    apis: apis.filter(api => api.service_id === svc.id).map(api => {
+                        const rawChannels = typeof api.channels === 'string' ? JSON.parse(api.channels) : (api.channels || {});
+                        const nbChannels = rawChannels.northbound || [];
+                        const downstream = (api._dependencies || []).map(d => ({
+                            name: d.api_name,
+                            url: d.url,
+                            method: d.http_method,
+                            provider_system: d.provider_system,
+                            priority: d.priority
+                        }));
+                        return {
+                            id: api.id,
+                            name: api.api_name,
+                            version: api.api_version,
+                            method: api.http_method,
+                            url: api.url,
+                            status: api.status,
+                            module: api.module,
+                            description: api.description,
+                            remarks: api.remarks || '',
+                            swagger_url: api.swagger_url,
+                            design_doc: api.design_doc,
+                            reference_link: api.reference_link,
+                            nb_channels: nbChannels,
+                            sb_downstream: downstream,
+                            mapping_summary: nbChannels.length > 0 || downstream.length > 0
+                                ? `${nbChannels.join(', ') || 'N/A'} → [${api.api_name}] → ${downstream.map(d => d.provider_system || d.name).join(', ') || 'N/A'}`
+                                : null
+                        };
+                    })
+                }))
+            })),
+            nb_sb_mapping_matrix: (() => {
+                const matrix = [];
+                apis.forEach(api => {
+                    const rawChannels = typeof api.channels === 'string' ? JSON.parse(api.channels) : (api.channels || {});
+                    const nbChannels = rawChannels.northbound || [];
+                    const downstream = (api._dependencies || []).map(d => ({
+                        name: d.api_name,
+                        provider_system: d.provider_system
+                    }));
+                    if (nbChannels.length > 0 || downstream.length > 0) {
+                        matrix.push({
+                            api_name: api.api_name,
+                            method: api.http_method,
+                            url: api.url,
+                            northbound_consumers: nbChannels,
+                            southbound_providers: downstream.map(d => d.provider_system || d.name).filter(Boolean),
+                            downstream_apis: downstream.map(d => d.name)
+                        });
+                    }
+                });
+                return matrix;
+            })()
+        };
+
+        res.json(lld);
+    } catch (err) {
+        console.error('LLD Export Error:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Expose API to WSO2
 app.post('/api/wso2/publish', async (req, res) => {
     const { apiId } = req.body;
@@ -552,6 +710,60 @@ app.post('/api/wso2/publish', async (req, res) => {
 
     } catch (err) {
         console.error("WSO2 Publish Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Smart Launch: create API, add default docs, apply standard policy, and publish in one step
+app.post('/api/wso2/project/:id/smart-launch', rateLimit(5, 60 * 1000), async (req, res) => {
+    const { id } = req.params;
+    const { apiId } = req.body;
+    try {
+        const [rows] = await pool.query('SELECT connection_details FROM projects WHERE id = ?', [id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Project not found' });
+        let config = rows[0].connection_details;
+        if (typeof config === 'string') config = JSON.parse(config);
+
+        const [apis] = await pool.query('SELECT * FROM api_catalog WHERE id = ?', [apiId]);
+        if (apis.length === 0) return res.status(404).json({ error: 'API not found' });
+        const apiData = apis[0];
+
+        const [deps] = await pool.query(
+            `SELECT c.url FROM api_dependencies d JOIN api_catalog c ON d.child_api_id = c.id WHERE d.parent_api_id = ? AND d.type = 'Direct' ORDER BY d.priority ASC LIMIT 1`,
+            [apiId]
+        );
+        const downstreamUrl = deps.length > 0 ? deps[0].url : 'http://localhost:8080/mock';
+
+        const { smartLaunch } = require('./wso2_publisher');
+        const result = await smartLaunch(apiData, downstreamUrl, config);
+        await pool.query("UPDATE api_catalog SET status = 'Published' WHERE id = ?", [apiId]);
+        res.json({ success: true, ...result });
+    } catch (err) {
+        console.error("Smart Launch Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Promote API: sync an API from one WSO2 environment to another
+app.post('/api/wso2/project/:id/promote-api', rateLimit(5, 60 * 1000), async (req, res) => {
+    const { id } = req.params;
+    const { wso2ApiId, targetProjectId } = req.body;
+    try {
+        const [srcRows] = await pool.query('SELECT connection_details FROM projects WHERE id = ?', [id]);
+        if (srcRows.length === 0) return res.status(404).json({ error: 'Source project not found' });
+        let srcConfig = srcRows[0].connection_details;
+        if (typeof srcConfig === 'string') srcConfig = JSON.parse(srcConfig);
+
+        const [tgtRows] = await pool.query('SELECT connection_details FROM projects WHERE id = ?', [targetProjectId]);
+        if (tgtRows.length === 0) return res.status(404).json({ error: 'Target project not found' });
+        let tgtConfig = tgtRows[0].connection_details;
+        if (typeof tgtConfig === 'string') tgtConfig = JSON.parse(tgtConfig);
+
+        const { promoteApiToEnv } = require('./wso2_publisher');
+        const result = await promoteApiToEnv(wso2ApiId, srcConfig, tgtConfig);
+        res.json({ success: true, ...result });
+    } catch (err) {
+        console.error("Promote API Error:", err);
         res.status(500).json({ error: err.message });
     }
 });
