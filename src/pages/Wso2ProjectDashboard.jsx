@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import {
     LayoutGrid, Search, ChevronLeft, Settings, Activity,
-    Globe, Layers, List,Box
+    Globe, Layers, List,Box, GitBranch
 } from 'lucide-react';
 import ApiCard from '../components/wso2/ApiCard.jsx';
 import ApiDetailPanel from '../components/wso2/ApiDetailPanel.jsx';
 import ServicesList from '../components/wso2/ServicesList.jsx';
 import ApplicationsManager from '../components/wso2/ApplicationsManager.jsx';
 import ApiProductsPanel from '../components/wso2/ApiProductsPanel.jsx';
+import DeploymentSummary from '../components/wso2/DeploymentSummary.jsx';
 import { api } from '../api';
 
 const Wso2ProjectDashboard = ({ project, onBack, onRefresh }) => {
@@ -119,6 +120,15 @@ const Wso2ProjectDashboard = ({ project, onBack, onRefresh }) => {
                     >
                         <Layers className="w-4 h-4" />
                         <span className="text-sm font-bold">Applications</span>
+                    </button>
+
+                    <button
+                        onClick={() => { setViewMode('deployments'); setSelectedService(null); }}
+                        className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors ${viewMode === 'deployments' ? 'bg-indigo-600/10 text-indigo-400 border border-indigo-500/20' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                            }`}
+                    >
+                        <GitBranch className="w-4 h-4" />
+                        <span className="text-sm font-bold">Deployments</span>
                     </button>
                 </div>
 
@@ -236,7 +246,12 @@ const Wso2ProjectDashboard = ({ project, onBack, onRefresh }) => {
                             <ApplicationsManager project={project} />
                         )}
 
-                        {filteredApis.length === 0 && (
+                        {/* Deployments View */}
+                        {viewMode === 'deployments' && (
+                            <DeploymentSummary project={project} />
+                        )}
+
+                        {filteredApis.length === 0 && viewMode !== 'products' && viewMode !== 'applications' && viewMode !== 'deployments' && (
                             <div className="flex flex-col items-center justify-center py-20 text-slate-500">
                                 <Search className="w-12 h-12 mb-4 opacity-20" />
                                 <p className="text-lg font-medium">No results found</p>

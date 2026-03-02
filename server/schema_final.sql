@@ -103,6 +103,9 @@ CREATE TABLE IF NOT EXISTS api_catalog (
     reference_link VARCHAR(255),
     remarks TEXT,
     
+    -- NB to SB Design Mapper metadata (field-level mapping)
+    design_metadata JSON,
+    
     -- Audit
     created_by VARCHAR(100),
     created_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

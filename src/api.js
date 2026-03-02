@@ -308,5 +308,35 @@ export const api = {
         const res = await fetch(`${API_URL}/projects/${projectId}/lld-export`);
         if (!res.ok) throw new Error('Failed to generate LLD export');
         return res.json();
+    },
+    // Design Metadata (NB→SB field mapping)
+    saveDesignMetadata: async (apiId, designMetadata) => {
+        const res = await fetch(`${API_URL}/sub-apis/${apiId}/design-metadata`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ designMetadata })
+        });
+        if (!res.ok) throw new Error('Failed to save design metadata');
+        return res.json();
+    },
+    // Smart Launch (create + doc + policy + publish in one step)
+    smartLaunchWso2Api: async (projectId, apiId) => {
+        const res = await fetch(`${API_URL}/wso2/project/${projectId}/smart-launch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ apiId })
+        });
+        if (!res.ok) throw new Error('Smart Launch failed');
+        return res.json();
+    },
+    // Environment Promotion
+    promoteWso2Api: async (projectId, wso2ApiId, targetProjectId) => {
+        const res = await fetch(`${API_URL}/wso2/project/${projectId}/promote-api`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ wso2ApiId, targetProjectId })
+        });
+        if (!res.ok) throw new Error('Promotion failed');
+        return res.json();
     }
 };

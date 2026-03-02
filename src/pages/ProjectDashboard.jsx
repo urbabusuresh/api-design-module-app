@@ -4,11 +4,12 @@ import {
     Database, Trash2, Save, X, Layers, Box, Globe, LayoutGrid, FileText,
     Shield, Code, MessageSquare, Tag, FileJson, CheckCircle, Share2, Laptop,
     MoreVertical, Edit2, LayoutList, Grid, Filter, Lock, BookOpen, Layers as LayersIcon,
-    Eye, Key, History, Play
+    Eye, Key, History, Play, GitBranch
 } from 'lucide-react';
 import SwaggerUI from "swagger-ui-react";
 import "swagger-ui-react/swagger-ui.css";
 import { api } from '../api';
+import DesignMapper from '../components/DesignMapper.jsx';
 
 // --- ENDPOINT TESTER COMPONENT ---
 // --- ADVANCED API TESTER COMPONENT (Postman-like) ---
@@ -529,6 +530,7 @@ function SubApiDrawer({ api, project, onClose, onSave, services = [], allApis = 
         { id: 'downstream', label: 'Downstream', icon: Database },
         { id: 'channels', label: 'Channels', icon: Share2 },
         { id: 'docs', label: 'Docs', icon: MessageSquare },
+        { id: 'mapper', label: 'Mapper', icon: GitBranch },
     ];
 
     // Local state for text editing to allow invalid JSON while typing
@@ -833,6 +835,11 @@ function SubApiDrawer({ api, project, onClose, onSave, services = [], allApis = 
                                 />
                             </div>
                         </div>
+                    )}
+
+                    {/* TAB: MAPPER */}
+                    {activeTab === 'mapper' && (
+                        <DesignMapper localApi={localApi} setLocalApi={setLocalApi} />
                     )}
                 </div>
             </div>

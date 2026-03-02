@@ -107,6 +107,7 @@ async function initDb() {
         await ensureColumn('systems', 'status', "VARCHAR(50) DEFAULT 'Active'");
         await ensureColumn('services', 'status', "VARCHAR(50) DEFAULT 'Active'");
         await ensureColumn('api_catalog', 'remarks', "TEXT");
+        await ensureColumn('api_catalog', 'design_metadata', "JSON");
 
     } catch (err) {
         console.error('Database Initialization Failed:', err);
@@ -348,6 +349,15 @@ app.get('/api/projects/:id', async (req, res) => {
                         designDoc: api.design_doc,
                         referenceLink: api.reference_link,
                         remarks: api.remarks || '',
+                        designMetadata: (() => {
+                            try {
+                                return typeof api.design_metadata === 'string'
+                                    ? JSON.parse(api.design_metadata)
+                                    : (api.design_metadata || null);
+                            } catch (_) {
+                                return null;
+                            }
+                        })(),
                         createdBy: api.created_by,
                         updatedBy: api.updated_by
                     };
@@ -477,6 +487,7 @@ app.post('/api/sub-apis', async (req, res) => {
         design_doc: api.designDoc,
         reference_link: api.referenceLink,
         remarks: api.remarks || null,
+        design_metadata: api.designMetadata ? JSON.stringify(api.designMetadata) : null,
 
         // Convert frontend consumers/downstream back to channels JSON
         // FIX: Do NOT put downstream dependencies in 'southbound' channels array anymore, as we use api_dependencies table now.
@@ -536,6 +547,19 @@ app.post('/api/sub-apis', async (req, res) => {
         res.json({ ...api, id });
     } catch (err) {
         console.error(err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Update Design Metadata for an API endpoint (NB→SB field mapping)
+app.put('/api/sub-apis/:id/design-metadata', rateLimit(30, 60 * 1000), async (req, res) => {
+    const { id } = req.params;
+    const { designMetadata } = req.body;
+    try {
+        await pool.query('UPDATE api_catalog SET design_metadata = ? WHERE id = ?',
+            [JSON.stringify(designMetadata), id]);
+        res.json({ success: true });
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -686,6 +710,60 @@ app.post('/api/wso2/publish', async (req, res) => {
 
     } catch (err) {
         console.error("WSO2 Publish Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Smart Launch: create API, add default docs, apply standard policy, and publish in one step
+app.post('/api/wso2/project/:id/smart-launch', rateLimit(5, 60 * 1000), async (req, res) => {
+    const { id } = req.params;
+    const { apiId } = req.body;
+    try {
+        const [rows] = await pool.query('SELECT connection_details FROM projects WHERE id = ?', [id]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Project not found' });
+        let config = rows[0].connection_details;
+        if (typeof config === 'string') config = JSON.parse(config);
+
+        const [apis] = await pool.query('SELECT * FROM api_catalog WHERE id = ?', [apiId]);
+        if (apis.length === 0) return res.status(404).json({ error: 'API not found' });
+        const apiData = apis[0];
+
+        const [deps] = await pool.query(
+            `SELECT c.url FROM api_dependencies d JOIN api_catalog c ON d.child_api_id = c.id WHERE d.parent_api_id = ? AND d.type = 'Direct' ORDER BY d.priority ASC LIMIT 1`,
+            [apiId]
+        );
+        const downstreamUrl = deps.length > 0 ? deps[0].url : 'http://localhost:8080/mock';
+
+        const { smartLaunch } = require('./wso2_publisher');
+        const result = await smartLaunch(apiData, downstreamUrl, config);
+        await pool.query("UPDATE api_catalog SET status = 'Published' WHERE id = ?", [apiId]);
+        res.json({ success: true, ...result });
+    } catch (err) {
+        console.error("Smart Launch Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Promote API: sync an API from one WSO2 environment to another
+app.post('/api/wso2/project/:id/promote-api', rateLimit(5, 60 * 1000), async (req, res) => {
+    const { id } = req.params;
+    const { wso2ApiId, targetProjectId } = req.body;
+    try {
+        const [srcRows] = await pool.query('SELECT connection_details FROM projects WHERE id = ?', [id]);
+        if (srcRows.length === 0) return res.status(404).json({ error: 'Source project not found' });
+        let srcConfig = srcRows[0].connection_details;
+        if (typeof srcConfig === 'string') srcConfig = JSON.parse(srcConfig);
+
+        const [tgtRows] = await pool.query('SELECT connection_details FROM projects WHERE id = ?', [targetProjectId]);
+        if (tgtRows.length === 0) return res.status(404).json({ error: 'Target project not found' });
+        let tgtConfig = tgtRows[0].connection_details;
+        if (typeof tgtConfig === 'string') tgtConfig = JSON.parse(tgtConfig);
+
+        const { promoteApiToEnv } = require('./wso2_publisher');
+        const result = await promoteApiToEnv(wso2ApiId, srcConfig, tgtConfig);
+        res.json({ success: true, ...result });
+    } catch (err) {
+        console.error("Promote API Error:", err);
         res.status(500).json({ error: err.message });
     }
 });
