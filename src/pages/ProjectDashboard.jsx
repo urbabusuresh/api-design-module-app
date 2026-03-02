@@ -1089,6 +1089,9 @@ function ChannelsEditor({ localApi, setLocalApi, projectSettings }) {
 
 // NB→SB Mapping Matrix View
 function NbSbMappingView({ project, onExportLLD }) {
+    const [filterNb, setFilterNb] = useState('All');
+    const [filterSb, setFilterSb] = useState('All');
+
     const allApis = project.systems?.flatMap(s =>
         s.rootApis?.flatMap(r => r.subApis?.map(a => ({
             ...a,
@@ -1104,16 +1107,43 @@ function NbSbMappingView({ project, onExportLLD }) {
     const nbChannels = [...new Set(allApis.flatMap(a => (a.consumers || []).map(c => c.name)))];
     const sbSystems = [...new Set(allApis.flatMap(a => (a.downstream || []).map(d => d.providerSystem || d.name).filter(Boolean)))];
 
+    // Stats
+    const authTypeCounts = {};
+    allApis.forEach(a => {
+        (a.downstream || []).forEach(d => {
+            const t = d.authType || 'None';
+            authTypeCounts[t] = (authTypeCounts[t] || 0) + 1;
+        });
+    });
+
+    const filteredApis = mappedApis.filter(a => {
+        if (filterNb !== 'All' && !(a.consumers || []).some(c => c.name === filterNb)) return false;
+        if (filterSb !== 'All' && !(a.downstream || []).some(d => (d.providerSystem || d.name) === filterSb)) return false;
+        return true;
+    });
+
+    const AUTH_COLORS = {
+        'None': 'bg-slate-700/50 text-slate-400',
+        'Bearer': 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
+        'Basic': 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
+        'OAuth2': 'bg-violet-500/10 text-violet-400 border border-violet-500/20',
+        'API Key': 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
+    };
+
     return (
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+            {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-2xl font-bold text-white">NB → SB Mapping</h2>
-                    <p className="text-slate-400 text-sm mt-1">Northbound consumer to southbound provider mapping across all APIs</p>
+                    <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+                        <Share2 className="w-6 h-6 text-indigo-400" />
+                        NB → SB Mapping
+                    </h2>
+                    <p className="text-slate-400 text-sm mt-1">Northbound consumer to southbound provider mapping with authentication details</p>
                 </div>
                 <button
                     onClick={onExportLLD}
-                    className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold shadow-lg shadow-indigo-500/20 transition-all active:scale-95"
+                    className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-500/20 transition-all active:scale-95"
                 >
                     <FileText className="w-4 h-4" />
                     <span>Export LLD JSON</span>
@@ -1121,57 +1151,89 @@ function NbSbMappingView({ project, onExportLLD }) {
             </div>
 
             {/* Summary Cards */}
-            <div className="grid grid-cols-3 gap-4">
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-                    <div className="text-xs font-bold text-slate-500 uppercase mb-1">Total APIs</div>
-                    <div className="text-3xl font-bold text-white">{allApis.length}</div>
+            <div className="grid grid-cols-4 gap-4">
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+                    <div className="text-[10px] font-bold text-slate-500 uppercase mb-1">Total APIs</div>
+                    <div className="text-3xl font-black text-white">{allApis.length}</div>
+                    <div className="text-xs text-slate-600 mt-1">{mappedApis.length} mapped</div>
                 </div>
-                <div className="bg-slate-900 border border-indigo-500/20 rounded-xl p-4">
-                    <div className="text-xs font-bold text-indigo-400 uppercase mb-1">NB Channels</div>
-                    <div className="text-3xl font-bold text-indigo-400">{nbChannels.length}</div>
+                <div className="bg-slate-900 border border-indigo-500/20 rounded-2xl p-4">
+                    <div className="text-[10px] font-bold text-indigo-400 uppercase mb-1">NB Channels</div>
+                    <div className="text-3xl font-black text-indigo-400">{nbChannels.length}</div>
                     <div className="text-xs text-slate-500 mt-1 truncate">{nbChannels.join(', ') || '—'}</div>
                 </div>
-                <div className="bg-slate-900 border border-emerald-500/20 rounded-xl p-4">
-                    <div className="text-xs font-bold text-emerald-400 uppercase mb-1">SB Systems</div>
-                    <div className="text-3xl font-bold text-emerald-400">{sbSystems.length}</div>
+                <div className="bg-slate-900 border border-emerald-500/20 rounded-2xl p-4">
+                    <div className="text-[10px] font-bold text-emerald-400 uppercase mb-1">SB Systems</div>
+                    <div className="text-3xl font-black text-emerald-400">{sbSystems.length}</div>
                     <div className="text-xs text-slate-500 mt-1 truncate">{sbSystems.join(', ') || '—'}</div>
                 </div>
+                <div className="bg-slate-900 border border-amber-500/20 rounded-2xl p-4">
+                    <div className="text-[10px] font-bold text-amber-400 uppercase mb-1">Auth Types Used</div>
+                    <div className="flex flex-wrap gap-1 mt-2">
+                        {Object.keys(authTypeCounts).length === 0 ? (
+                            <span className="text-slate-600 text-xs">—</span>
+                        ) : Object.entries(authTypeCounts).map(([type, count]) => (
+                            <span key={type} className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${AUTH_COLORS[type] || AUTH_COLORS['None']}`}>{type}×{count}</span>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
+            {/* Filters */}
+            <div className="flex items-center gap-3 bg-slate-900/60 border border-slate-800 rounded-xl p-3">
+                <span className="text-xs text-slate-500 font-bold uppercase tracking-wider">Filter:</span>
+                <select value={filterNb} onChange={e => setFilterNb(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-300 outline-none focus:border-indigo-500"
+                >
+                    <option value="All">All NB Channels</option>
+                    {nbChannels.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <select value={filterSb} onChange={e => setFilterSb(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-300 outline-none focus:border-indigo-500"
+                >
+                    <option value="All">All SB Systems</option>
+                    {sbSystems.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <span className="text-[10px] text-slate-500 ml-auto">{filteredApis.length} of {mappedApis.length} APIs shown</span>
             </div>
 
             {/* Mapping Table */}
             {mappedApis.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-slate-800 rounded-2xl text-slate-500">
+                <div className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-slate-800 rounded-3xl text-slate-500">
                     <Share2 className="w-12 h-12 mb-4 opacity-20" />
                     <p className="text-lg font-medium">No mappings yet</p>
-                    <p className="text-sm">Add NB channels and downstream SB APIs to each endpoint to see the mapping here.</p>
+                    <p className="text-sm mt-1">Add NB channels and downstream SB APIs to each endpoint to see the mapping here.</p>
                 </div>
             ) : (
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-                    <div className="px-6 py-3 border-b border-slate-800 bg-slate-900/80">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{mappedApis.length} Mapped APIs</span>
+                    <div className="px-6 py-3 border-b border-slate-800 flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{filteredApis.length} Mapped APIs</span>
+                        <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                            <Lock className="w-3 h-3" /> Auth type shown per SB connection
+                        </div>
                     </div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="border-b border-slate-800 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                                    <th className="px-4 py-3 text-left">API</th>
+                                    <th className="px-4 py-3 text-left">API Endpoint</th>
                                     <th className="px-4 py-3 text-left">Service / System</th>
                                     <th className="px-4 py-3 text-left">Method</th>
                                     <th className="px-4 py-3 text-left">NB Consumers</th>
-                                    <th className="px-4 py-3 text-left">SB Providers</th>
+                                    <th className="px-4 py-3 text-left">SB Providers + Auth</th>
                                     <th className="px-4 py-3 text-left">Status</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {mappedApis.map((a, idx) => (
+                                {filteredApis.map((a, idx) => (
                                     <tr key={a.id} className={`border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors ${idx % 2 === 0 ? '' : 'bg-slate-900/30'}`}>
                                         <td className="px-4 py-3">
-                                            <div className="font-medium text-white">{a.name}</div>
-                                            <div className="text-xs text-slate-500 font-mono truncate max-w-[200px]">{a.url}</div>
+                                            <div className="font-semibold text-white">{a.name}</div>
+                                            <div className="text-[10px] text-slate-500 font-mono truncate max-w-[200px]">{a.url}</div>
                                         </td>
                                         <td className="px-4 py-3">
-                                            <div className="text-slate-300">{a.serviceName}</div>
-                                            <div className="text-xs text-slate-500">{a.systemName}</div>
+                                            <div className="text-slate-300 text-xs font-medium">{a.serviceName}</div>
+                                            <div className="text-[10px] text-slate-500">{a.systemName}</div>
                                         </td>
                                         <td className="px-4 py-3">
                                             <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${a.method === 'GET' ? 'bg-emerald-500/10 text-emerald-400' : a.method === 'POST' ? 'bg-blue-500/10 text-blue-400' : a.method === 'DELETE' ? 'bg-red-500/10 text-red-400' : 'bg-amber-500/10 text-amber-400'}`}>{a.method}</span>
@@ -1187,17 +1249,27 @@ function NbSbMappingView({ project, onExportLLD }) {
                                             </div>
                                         </td>
                                         <td className="px-4 py-3">
-                                            <div className="flex flex-wrap gap-1">
+                                            <div className="flex flex-col gap-1.5">
                                                 {(a.downstream || []).length === 0
                                                     ? <span className="text-slate-600 text-xs">—</span>
                                                     : (a.downstream || []).map(d => (
-                                                        <span key={d.id || d.name} className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[10px] rounded-full font-medium">{d.providerSystem || d.name}</span>
+                                                        <div key={d.id || d.name} className="flex items-center gap-1.5 flex-wrap">
+                                                            <span className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[10px] rounded-full font-medium">{d.providerSystem || d.name}</span>
+                                                            {d.authType && d.authType !== 'None' && (
+                                                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${AUTH_COLORS[d.authType] || AUTH_COLORS['None']}`}>
+                                                                    <Lock className="w-2.5 h-2.5 inline mr-0.5" />{d.authType}
+                                                                </span>
+                                                            )}
+                                                            {d.method && (
+                                                                <span className="text-[9px] text-slate-600 font-mono">{d.method}</span>
+                                                            )}
+                                                        </div>
                                                     ))
                                                 }
                                             </div>
                                         </td>
                                         <td className="px-4 py-3">
-                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${a.status === 'Active' || a.status === 'Published' ? 'bg-emerald-500/10 text-emerald-400' : a.status === 'Draft' ? 'bg-amber-500/10 text-amber-400' : 'bg-slate-700 text-slate-400'}`}>{a.status}</span>
+                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${a.status === 'Active' || a.status === 'Published' ? 'bg-emerald-500/10 text-emerald-400' : a.status === 'Draft' ? 'bg-amber-500/10 text-amber-400' : 'bg-slate-700 text-slate-400'}`}>{a.status || 'Draft'}</span>
                                         </td>
                                     </tr>
                                 ))}
@@ -1373,89 +1445,114 @@ export default function ProjectDashboard({ project, onBack, onRefresh }) {
         <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
             {/* Sidebar */}
             <aside className="w-[260px] bg-slate-900/90 border-r border-slate-800 flex flex-col backdrop-blur-xl shrink-0">
-                <div className="p-6 flex items-center space-x-3 cursor-pointer hover:bg-slate-800/50 transition-colors" onClick={onBack}>
-                    <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shrink-0">
+                {/* Project Back Button */}
+                <div className="p-4 flex items-center space-x-3 cursor-pointer hover:bg-slate-800/50 transition-colors border-b border-slate-800/60 group" onClick={onBack}>
+                    <div className="w-8 h-8 bg-gradient-to-br from-indigo-600 to-violet-600 rounded-xl flex items-center justify-center shrink-0 shadow-lg shadow-indigo-500/20 group-hover:shadow-indigo-500/40 transition-shadow">
                         <ArrowRight className="text-white w-4 h-4 rotate-180" />
                     </div>
                     <div>
-                        <div className="text-xs text-slate-500 uppercase font-bold tracking-wider">Project</div>
-                        <div className="text-sm font-bold text-white truncate max-w-[140px]">{project.name}</div>
+                        <div className="text-[9px] text-slate-500 uppercase font-bold tracking-[0.15em]">Workspace</div>
+                        <div className="text-sm font-bold text-white truncate max-w-[140px] group-hover:text-indigo-300 transition-colors">{project.name}</div>
                     </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-2 py-2">
-                    <div className="px-3 mb-2 flex items-center justify-between group">
-                        <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Systems</h3>
-                        <button onClick={handleCreateSystem} className="text-slate-500 hover:text-indigo-400 transition-colors opacity-0 group-hover:opacity-100">
+                <div className="flex-1 overflow-y-auto px-2 py-3">
+                    {/* Systems Section */}
+                    <div className="px-3 mb-2 flex items-center justify-between group/section">
+                        <div className="flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                            <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Systems</h3>
+                        </div>
+                        <button onClick={handleCreateSystem} className="text-slate-600 hover:text-indigo-400 transition-colors opacity-0 group-hover/section:opacity-100 p-1 hover:bg-slate-800 rounded-md" title="Add System">
                             <Plus className="w-3 h-3" />
                         </button>
                     </div>
 
-                    <div className="space-y-0.5">
+                    <div className="space-y-0.5 mb-4">
                         {project.systems?.map(sys => (
                             <button
                                 key={sys.id}
                                 onClick={() => { setSelectedSystemId(sys.id); setSelectedRootId(null); setSelectedModuleId(null); setSelectedAuthView(false); setCurrentView('dashboard'); setSystemViewMode('services'); }}
-                                className={`w-full text-left px-3 py-2 rounded-lg transition-all duration-200 flex items-center space-x-3 group ${selectedSystemId === sys.id && !selectedModuleId && !selectedAuthView && currentView === 'dashboard'
-                                    ? 'bg-slate-800 text-white shadow-md'
-                                    : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-300'
+                                className={`w-full text-left px-3 py-2 rounded-xl transition-all duration-200 flex items-center space-x-3 group ${selectedSystemId === sys.id && !selectedModuleId && !selectedAuthView && currentView === 'dashboard'
+                                    ? 'bg-indigo-600/10 text-white border border-indigo-500/20 shadow-sm'
+                                    : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 border border-transparent'
                                     }`}
                             >
-                                <Box className={`w-4 h-4 ${selectedSystemId === sys.id && !selectedModuleId && !selectedAuthView ? 'text-indigo-400' : 'text-slate-600'}`} />
+                                <Box className={`w-4 h-4 shrink-0 ${selectedSystemId === sys.id && !selectedModuleId && !selectedAuthView ? 'text-indigo-400' : 'text-slate-600 group-hover:text-slate-400'}`} />
                                 <span className="truncate flex-1 text-sm font-medium">{sys.name}</span>
+                                {selectedSystemId === sys.id && !selectedModuleId && !selectedAuthView && currentView === 'dashboard' && (
+                                    <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0" />
+                                )}
                             </button>
                         ))}
+                        {(project.systems || []).length === 0 && (
+                            <button onClick={handleCreateSystem} className="w-full px-3 py-2 text-xs text-slate-600 italic hover:text-indigo-400 transition-colors text-left flex items-center gap-2">
+                                <Plus className="w-3 h-3" /> Add first system
+                            </button>
+                        )}
                     </div>
 
                     {/* Modules Section */}
-                    <div className="px-3 mt-6 mb-2 flex items-center justify-between group">
-                        <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Modules</h3>
-                        <button onClick={handleCreateModule} className="text-slate-500 hover:text-indigo-400 transition-colors opacity-0 group-hover:opacity-100">
+                    <div className="px-3 mb-2 flex items-center justify-between group/section">
+                        <div className="flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-pink-500" />
+                            <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Modules</h3>
+                        </div>
+                        <button onClick={handleCreateModule} className="text-slate-600 hover:text-pink-400 transition-colors opacity-0 group-hover/section:opacity-100 p-1 hover:bg-slate-800 rounded-md" title="Add Module">
                             <Plus className="w-3 h-3" />
                         </button>
                     </div>
-                    <div className="space-y-0.5">
+                    <div className="space-y-0.5 mb-4">
                         {project.modules?.map(mod => (
                             <button
                                 key={mod.id}
                                 onClick={() => { setSelectedModuleId(mod.id); setSelectedSystemId(null); setSelectedAuthView(false); setCurrentView('dashboard'); }}
-                                className={`w-full text-left px-3 py-2 rounded-lg transition-all duration-200 flex items-center space-x-3 group ${selectedModuleId === mod.id && !selectedAuthView
-                                    ? 'bg-slate-800 text-white shadow-md'
-                                    : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-300'
+                                className={`w-full text-left px-3 py-2 rounded-xl transition-all duration-200 flex items-center space-x-3 group ${selectedModuleId === mod.id && !selectedAuthView
+                                    ? 'bg-pink-500/10 text-white border border-pink-500/20 shadow-sm'
+                                    : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 border border-transparent'
                                     }`}
                             >
-                                <BookOpen className={`w-4 h-4 ${selectedModuleId === mod.id && !selectedAuthView ? 'text-pink-400' : 'text-slate-600'}`} />
+                                <BookOpen className={`w-4 h-4 shrink-0 ${selectedModuleId === mod.id && !selectedAuthView ? 'text-pink-400' : 'text-slate-600 group-hover:text-slate-400'}`} />
                                 <span className="truncate flex-1 text-sm font-medium">{mod.name}</span>
+                                {selectedModuleId === mod.id && !selectedAuthView && (
+                                    <div className="w-1.5 h-1.5 rounded-full bg-pink-400 shrink-0" />
+                                )}
                             </button>
                         ))}
                         {(project.modules || []).length === 0 && (
-                            <div className="px-3 py-2 text-xs text-slate-600 italic">No modules defined</div>
+                            <button onClick={handleCreateModule} className="w-full px-3 py-2 text-xs text-slate-600 italic hover:text-pink-400 transition-colors text-left flex items-center gap-2">
+                                <Plus className="w-3 h-3" /> Add first module
+                            </button>
                         )}
                     </div>
 
-                    {/* Authentications Section */}
-                    <div className="px-3 mt-6 mb-2 flex items-center justify-between group">
-                        <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Authentication</h3>
+                    {/* Security Section */}
+                    <div className="px-3 mb-2 flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Security</h3>
                     </div>
-                    <div className="space-y-0.5">
+                    <div className="space-y-0.5 mb-1">
                         <button
                             onClick={() => { setSelectedAuthView(true); setSelectedModuleId(null); setSelectedSystemId(null); setCurrentView('dashboard'); }}
-                            className={`w-full text-left px-3 py-2 rounded-lg transition-all duration-200 flex items-center space-x-3 group ${selectedAuthView
-                                ? 'bg-slate-800 text-white shadow-md'
-                                : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-300'
+                            className={`w-full text-left px-3 py-2 rounded-xl transition-all duration-200 flex items-center space-x-3 group ${selectedAuthView
+                                ? 'bg-emerald-500/10 text-white border border-emerald-500/20 shadow-sm'
+                                : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 border border-transparent'
                                 }`}
                         >
-                            <Key className={`w-4 h-4 ${selectedAuthView ? 'text-emerald-400' : 'text-slate-600'}`} />
-                            <span className="truncate flex-1 text-sm font-medium">Saved Profiles</span>
+                            <Key className={`w-4 h-4 shrink-0 ${selectedAuthView ? 'text-emerald-400' : 'text-slate-600'}`} />
+                            <span className="truncate flex-1 text-sm font-medium">Auth Profiles</span>
+                            {(project.authProfiles || []).length > 0 && (
+                                <span className="text-[9px] font-bold bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-full">{(project.authProfiles || []).length}</span>
+                            )}
                         </button>
                         <button
                             onClick={() => { setSelectedAuthView(false); setSelectedModuleId(null); setSelectedSystemId(null); setCurrentView('testLogs'); }}
-                            className={`w-full text-left px-3 py-2 rounded-lg transition-all duration-200 flex items-center space-x-3 group ${currentView === 'testLogs'
-                                ? 'bg-slate-800 text-white shadow-md'
-                                : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-300'
+                            className={`w-full text-left px-3 py-2 rounded-xl transition-all duration-200 flex items-center space-x-3 group ${currentView === 'testLogs'
+                                ? 'bg-slate-800 text-white border border-slate-700 shadow-sm'
+                                : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 border border-transparent'
                                 }`}
                         >
-                            <History className={`w-4 h-4 ${currentView === 'testLogs' ? 'text-indigo-400' : 'text-slate-600'}`} />
+                            <History className={`w-4 h-4 shrink-0 ${currentView === 'testLogs' ? 'text-indigo-400' : 'text-slate-600'}`} />
                             <span className="truncate flex-1 text-sm font-medium">Test History</span>
                         </button>
                     </div>
@@ -1464,16 +1561,16 @@ export default function ProjectDashboard({ project, onBack, onRefresh }) {
                 <div className="p-2 border-t border-slate-800">
                     <button
                         onClick={() => { setSelectedAuthView(false); setSelectedModuleId(null); setSelectedSystemId(null); setCurrentView('nbsbMap'); }}
-                        className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors mb-1 ${currentView === 'nbsbMap' ? 'bg-indigo-600/10 text-indigo-400' : 'hover:bg-slate-800 text-slate-400'}`}
+                        className={`w-full flex items-center space-x-3 px-4 py-2.5 rounded-xl transition-colors mb-1 ${currentView === 'nbsbMap' ? 'bg-indigo-600/10 text-indigo-400 border border-indigo-500/20' : 'hover:bg-slate-800 text-slate-400 border border-transparent'}`}
                     >
-                        <Share2 className="w-4 h-4" />
-                        <span className="text-sm font-medium">NB→SB Map</span>
+                        <Share2 className="w-4 h-4 shrink-0" />
+                        <span className="text-sm font-medium">NB→SB Mapping</span>
                     </button>
                     <button
                         onClick={() => setCurrentView('settings')}
-                        className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${currentView === 'settings' ? 'bg-indigo-600/10 text-indigo-400' : 'hover:bg-slate-800 text-slate-400'}`}
+                        className={`w-full flex items-center space-x-3 px-4 py-2.5 rounded-xl transition-colors ${currentView === 'settings' ? 'bg-slate-800 text-white border border-slate-700' : 'hover:bg-slate-800 text-slate-400 border border-transparent'}`}
                     >
-                        <Settings className="w-4 h-4" />
+                        <Settings className="w-4 h-4 shrink-0" />
                         <span className="text-sm font-medium">Project Settings</span>
                     </button>
                 </div>
