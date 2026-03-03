@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     Server, Activity, Search, Plus, Settings, ChevronRight, ArrowRight,
     Database, X, Layers, Box, Globe, LayoutGrid, FileText,
     Shield, Code, MessageSquare, Tag, FileJson, CheckCircle, Share2, Laptop,
     Edit2, LayoutList, Grid, Lock, BookOpen, Layers as LayersIcon,
-    Eye, Key, History, Play, GitBranch, Copy, Clock, Trash2
+    Eye, Key, History, Play, GitBranch, Copy, Clock, Trash2,
+    Sun, Moon, SlidersHorizontal
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SwaggerUI from "swagger-ui-react";
@@ -21,9 +22,12 @@ import { SubApiDrawer } from '../components/dashboard/SubApiDrawer';
 import { ModuleViewer } from '../components/dashboard/ModuleViewer';
 import { NbSbMappingView } from '../components/dashboard/NbSbMappingView';
 import { TestDrawer } from '../components/dashboard/TestDrawer';
+import { EnvVariableManager } from '../components/dashboard/EnvVariableManager';
+import { useTheme } from '../ThemeContext.jsx';
 
 // Main Workspace Component (The Dashboard)
 export default function ProjectDashboard({ project, onBack, onRefresh }) {
+    const { theme, toggleTheme } = useTheme();
     const [currentView, setCurrentView] = useState('dashboard'); // dashboard, settings, testLogs, nbsbMap
     const [selectedSystemId, setSelectedSystemId] = useState(project.systems?.[0]?.id);
     const [selectedRootId, setSelectedRootId] = useState(null);
@@ -35,6 +39,7 @@ export default function ProjectDashboard({ project, onBack, onRefresh }) {
     const [expandedApiId, setExpandedApiId] = useState(null);
     const [systemViewMode, setSystemViewMode] = useState('services'); // 'services' (cards) | 'apis' (flat list)
     const [mainPromptConfig, setMainPromptConfig] = useState(null);
+    const [showEnvManager, setShowEnvManager] = useState(false);
 
     // Filters
     const [filterCategory, setFilterCategory] = useState('All');
@@ -50,6 +55,21 @@ export default function ProjectDashboard({ project, onBack, onRefresh }) {
             setSelectedSystemId(project.systems[0].id);
         }
     }, [project]);
+
+    // Keyboard Shortcuts: Esc to close open panels
+    useEffect(() => {
+        const handler = (e) => {
+            if (e.key === 'Escape') {
+                if (showEnvManager) { setShowEnvManager(false); return; }
+                if (selectedSubApi) { setSelectedSubApi(null); return; }
+                if (testApiTarget) { setTestApiTarget(null); return; }
+                if (mainPromptConfig) { setMainPromptConfig(null); return; }
+                if (isCreatingRoot) { setIsCreatingRoot(false); return; }
+            }
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [showEnvManager, selectedSubApi, testApiTarget, mainPromptConfig, isCreatingRoot]);
 
     const activeSystem = project.systems?.find(s => s.id === selectedSystemId);
     const activeRoot = activeSystem?.rootApis?.find(r => r.id === selectedRootId);
@@ -417,14 +437,41 @@ export default function ProjectDashboard({ project, onBack, onRefresh }) {
                         <span className="text-sm font-medium">NB→SB Mapping</span>
                     </button>
                     <button
-                        onClick={() => setCurrentView('settings')}
-                        className={`w-full flex items-center space-x-3 px-4 py-2.5 rounded-xl transition-colors ${currentView === 'settings' ? 'bg-slate-800 text-white border border-slate-700' : 'hover:bg-slate-800 text-slate-400 border border-transparent'}`}
+                        onClick={() => setShowEnvManager(true)}
+                        className="w-full flex items-center space-x-3 px-4 py-2.5 rounded-xl transition-colors mb-1 hover:bg-purple-800/30 text-slate-400 hover:text-purple-300 border border-transparent"
+                        title="Manage environment variables (DEV/SIT/UAT/PROD)"
                     >
-                        <Settings className="w-4 h-4 shrink-0" />
-                        <span className="text-sm font-medium">Project Settings</span>
+                        <SlidersHorizontal className="w-4 h-4 shrink-0 text-purple-500" />
+                        <span className="text-sm font-medium">Env Variables</span>
                     </button>
+                    <div className="flex items-center gap-1 mb-1">
+                        <button
+                            onClick={() => setCurrentView('settings')}
+                            className={`flex-1 flex items-center space-x-3 px-4 py-2.5 rounded-xl transition-colors ${currentView === 'settings' ? 'bg-slate-800 text-white border border-slate-700' : 'hover:bg-slate-800 text-slate-400 border border-transparent'}`}
+                        >
+                            <Settings className="w-4 h-4 shrink-0" />
+                            <span className="text-sm font-medium">Project Settings</span>
+                        </button>
+                        <button
+                            onClick={toggleTheme}
+                            className="p-2.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-amber-400 transition-colors border border-transparent"
+                            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+                        >
+                            {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                        </button>
+                    </div>
                 </div>
             </aside>
+
+            {/* Environment Variable Manager */}
+            {showEnvManager && (
+                <EnvVariableManager
+                    project={project}
+                    environments={environments}
+                    onClose={() => setShowEnvManager(false)}
+                    onSaved={(vars) => { handleUpdateVariables(vars); setShowEnvManager(false); }}
+                />
+            )}
 
             {/* Main Content */}
             <main className="flex-1 flex flex-col relative bg-slate-950 transition-all overflow-hidden">

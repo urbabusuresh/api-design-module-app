@@ -67,3 +67,69 @@ body {
   from { background-position: -200% 0; }
   to { background-position: 200% 0; }
 }
+
+/* Light theme overrides */
+html.light-theme {
+  --bg-primary: #f8fafc;
+  --bg-secondary: #f1f5f9;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --border-color: #e2e8f0;
+}
+
+html.light-theme body {
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+html.light-theme .bg-slate-950 {
+  background-color: #f8fafc !important;
+}
+
+html.light-theme .bg-slate-900 {
+  background-color: #f1f5f9 !important;
+}
+
+html.light-theme .bg-slate-800 {
+  background-color: #e2e8f0 !important;
+}
+
+html.light-theme .border-slate-800 {
+  border-color: #cbd5e1 !important;
+}
+
+html.light-theme .border-slate-700 {
+  border-color: #94a3b8 !important;
+}
+
+html.light-theme .text-white {
+  color: #0f172a !important;
+}
+
+html.light-theme .text-slate-300 {
+  color: #334155 !important;
+}
+
+html.light-theme .text-slate-400 {
+  color: #475569 !important;
+}
+
+html.light-theme .text-slate-500 {
+  color: #64748b !important;
+}
+
+html.light-theme .text-slate-600 {
+  color: #475569 !important;
+}
+
+html.light-theme .bg-slate-900\/50 {
+  background-color: rgba(241, 245, 249, 0.5) !important;
+}
+
+html.light-theme input,
+html.light-theme textarea,
+html.light-theme select {
+  background-color: #f8fafc;
+  color: #0f172a;
+  border-color: #cbd5e1;
+}
