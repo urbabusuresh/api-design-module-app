@@ -124,13 +124,34 @@ export function AdvancedApiTester({ api: targetApi, project, onUpdateExamples, m
 
     const [testHeaders, setTestHeaders] = useState(() => {
         const h = [];
-        h.push({ key: 'Content-Type', value: 'application/json', active: true });
-        if (Array.isArray(targetApi.headers)) {
-            targetApi.headers.forEach(item => { if (item.key) h.push({ ...item, active: true }); });
-        } else if (targetApi.headers && typeof targetApi.headers === 'object') {
-            Object.entries(targetApi.headers).forEach(([k, v]) => h.push({ key: k, value: String(v), active: true }));
+        const apiHeaders = targetApi.headers || {};
+        const isSoap = targetApi.apiType === 'SOAP' || targetApi.method === 'SOAP';
+
+        if (isSoap) {
+            h.push({ key: 'Content-Type', value: 'text/xml; charset=utf-8', active: true });
+            const soapAction = apiHeaders['SOAPAction'] || apiHeaders['soapaction'] || '""';
+            h.push({ key: 'SOAPAction', value: soapAction, active: true });
+        } else if (targetApi.method !== 'GET') {
+            const hasContentType = Object.keys(apiHeaders).some(k => k.toLowerCase() === 'content-type');
+            if (!hasContentType) {
+                h.push({ key: 'Content-Type', value: 'application/json', active: true });
+            }
         }
-        return h.length > 1 ? h : [...h, { key: '', value: '', active: true }];
+
+        if (Array.isArray(targetApi.headers)) {
+            targetApi.headers.forEach(item => {
+                if (item.key && !h.some(existing => existing.key.toLowerCase() === item.key.toLowerCase())) {
+                    h.push({ ...item, active: true });
+                }
+            });
+        } else if (targetApi.headers && typeof targetApi.headers === 'object') {
+            Object.entries(targetApi.headers).forEach(([k, v]) => {
+                if (!h.some(existing => existing.key.toLowerCase() === k.toLowerCase())) {
+                    h.push({ key: k, value: String(v), active: true });
+                }
+            });
+        }
+        return h.length > 0 ? h : [{ key: '', value: '', active: true }];
     });
 
     const [testBody, setTestBody] = useState(() => {
@@ -143,17 +164,77 @@ export function AdvancedApiTester({ api: targetApi, project, onUpdateExamples, m
 
     const [auth, setAuth] = useState(targetApi.authentication || { type: 'None' });
     const [selectedProfileId, setSelectedProfileId] = useState("");
-    const [bodyFormat, setBodyFormat] = useState(targetApi.bodyFormat || (testBody?.includes('<?xml') ? 'xml' : 'json'));
+    const [bodyFormat, setBodyFormat] = useState('json');
     const [activeReqTab, setActiveReqTab] = useState('params');
     const [testLogs, setTestLogs] = useState([]);
     const [diffTarget, setDiffTarget] = useState(null); // For comparing two responses
     const [showDiffModal, setShowDiffModal] = useState(false);
+    const [soapWss, setSoapWss] = useState({
+        enabled: false,
+        username: '',
+        password: '',
+        addTimestamp: true,
+        type: 'UsernameToken'
+    });
 
     // Feature 13: Keyboard Shortcuts
     useKeyboardShortcuts([
         { key: 'Enter', ctrl: true, action: () => runTest(), allowInInput: true },
         { key: 's', ctrl: true, action: (e) => { e.preventDefault(); runTest(); } }
     ]);
+
+    // Reset / Sync state when targetApi changes
+    useEffect(() => {
+        setTestUrl(targetApi.url || "");
+        setTestMethod(targetApi.method || "GET");
+
+        // Headers
+        const h = [];
+        const apiHeaders = targetApi.headers || {};
+        const isSoap = targetApi.apiType === 'SOAP' || targetApi.method === 'SOAP';
+
+        if (isSoap) {
+            h.push({ key: 'Content-Type', value: 'text/xml; charset=utf-8', active: true });
+            const soapAction = apiHeaders['SOAPAction'] || apiHeaders['soapaction'] || '""';
+            h.push({ key: 'SOAPAction', value: soapAction, active: true });
+        } else if (targetApi.method !== 'GET') {
+            const hasContentType = Object.keys(apiHeaders).some(k => k.toLowerCase() === 'content-type');
+            if (!hasContentType) {
+                h.push({ key: 'Content-Type', value: 'application/json', active: true });
+            }
+        }
+
+        if (Array.isArray(targetApi.headers)) {
+            targetApi.headers.forEach(item => {
+                if (item.key && !h.some(existing => existing.key.toLowerCase() === item.key.toLowerCase())) {
+                    h.push({ ...item, active: true });
+                }
+            });
+        } else if (targetApi.headers && typeof targetApi.headers === 'object') {
+            Object.entries(targetApi.headers).forEach(([k, v]) => {
+                if (!h.some(existing => existing.key.toLowerCase() === k.toLowerCase())) {
+                    h.push({ key: k, value: String(v), active: true });
+                }
+            });
+        }
+        setTestHeaders(h.length > 0 ? h : [{ key: '', value: '', active: true }]);
+
+        // Body
+        let body = targetApi.request?.body || targetApi.request || targetApi.request_body || "";
+        if (body && typeof body === 'object') body = JSON.stringify(body, null, 4);
+        setTestBody(body);
+
+        // Body Format
+        const format = targetApi.bodyFormat || (String(body).includes('<?xml') ? 'xml' : 'json');
+        setBodyFormat(format);
+
+        // Auth
+        setAuth(targetApi.authentication || { type: 'None' });
+
+        // Reset results
+        setResult(null);
+        setTestLogs([]);
+    }, [targetApi.id]);
 
     useEffect(() => {
         if (moduleId && !selectedProfileId) {
@@ -223,6 +304,60 @@ export function AdvancedApiTester({ api: targetApi, project, onUpdateExamples, m
 
             // 2. Apply API Level Specific Headers (they override module level if keys match)
             testHeaders.filter(h => h.active && h.key).forEach(h => { finalHeaders[resolveVars(h.key)] = resolveVars(h.value); });
+
+            let finalBody = resolveVars(testBody);
+
+            // SOAP WS-Security Injection
+            if (targetApi.apiType === 'SOAP' && soapWss.enabled && soapWss.username) {
+                try {
+                    const parser = new DOMParser();
+                    const xmlDoc = parser.parseFromString(finalBody, "text/xml");
+                    const ns = {
+                        soap: "http://schemas.xmlsoap.org/soap/envelope/",
+                        wsse: "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd",
+                        wsu: "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd"
+                    };
+
+                    let envelope = xmlDoc.getElementsByTagNameNS(ns.soap, "Envelope")[0] || xmlDoc.documentElement;
+                    let header = xmlDoc.getElementsByTagNameNS(ns.soap, "Header")[0];
+                    if (!header) {
+                        header = xmlDoc.createElementNS(ns.soap, "soap:Header");
+                        envelope.insertBefore(header, envelope.firstChild);
+                    }
+
+                    const security = xmlDoc.createElementNS(ns.wsse, "wsse:Security");
+                    security.setAttribute("xmlns:wsse", ns.wsse);
+                    security.setAttribute("xmlns:wsu", ns.wsu);
+                    security.setAttribute("soap:mustUnderstand", "1");
+
+                    const userToken = xmlDoc.createElementNS(ns.wsse, "wsse:UsernameToken");
+
+                    const userNode = xmlDoc.createElementNS(ns.wsse, "wsse:Username");
+                    userNode.textContent = resolveVars(soapWss.username);
+                    userToken.appendChild(userNode);
+
+                    const passNode = xmlDoc.createElementNS(ns.wsse, "wsse:Password");
+                    passNode.setAttribute("Type", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordText");
+                    passNode.textContent = resolveVars(soapWss.password);
+                    userToken.appendChild(passNode);
+
+                    if (soapWss.addTimestamp) {
+                        const ts = xmlDoc.createElementNS(ns.wsu, "wsu:Timestamp");
+                        const created = xmlDoc.createElementNS(ns.wsu, "wsu:Created");
+                        created.textContent = new Date().toISOString();
+                        ts.appendChild(created);
+                        security.appendChild(ts);
+                    }
+
+                    security.appendChild(userToken);
+                    header.appendChild(security);
+
+                    finalBody = new XMLSerializer().serializeToString(xmlDoc);
+                    addLog("Injected WS-Security Headers into SOAP Envelope", "success");
+                } catch (e) {
+                    addLog("WS-Security Injection failed: " + e.message, "error");
+                }
+            }
 
             // Resolve global variables in URL
             let base = "";
@@ -313,24 +448,15 @@ export function AdvancedApiTester({ api: targetApi, project, onUpdateExamples, m
                 addLog(`API Key "${finalAuth.key}" attached to headers.`, "info");
             }
 
-            let bodyToPay = testBody;
-            if (testMethod !== 'GET' && testBody && bodyFormat === 'json') {
-                try {
-                    bodyToPay = JSON.parse(testBody);
-                } catch (e) { }
-            }
-
             addLog(`Sending ${testMethod} request to target...`, "info");
-            if (resolvedUrl !== testUrl) {
-                addLog(`Global variables resolved in URL.`, "info");
-            }
+
             const data = await api.testEndpoint({
                 apiId: targetApi.id,
                 url: resolvedUrl,
                 method: testMethod,
                 headers: finalHeaders,
                 bodyFormat: bodyFormat,
-                body: testMethod !== 'GET' ? bodyToPay : undefined
+                body: testMethod !== 'GET' ? finalBody : undefined
             }, project.id);
 
             setResult(data);
@@ -439,8 +565,12 @@ export function AdvancedApiTester({ api: targetApi, project, onUpdateExamples, m
     return (
         <div className="flex flex-col h-full text-slate-300">
             {/* Top Bar: Method \u0026 URL */}
+            {/* Top Bar: Method & URL */}
             <div className="flex-none p-4 pb-0">
                 <div className="flex items-center space-x-2 bg-slate-900 border border-slate-800 rounded-xl p-1.5 shadow-xl">
+                    <div className={`px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest ${targetApi.apiType === 'SOAP' ? 'bg-amber-500/10 text-amber-500' : targetApi.apiType === 'GRAPHQL' ? 'bg-pink-500/10 text-pink-500' : 'bg-indigo-500/10 text-indigo-500'}`}>
+                        {targetApi.apiType || 'REST'}
+                    </div>
                     <select
                         value={testMethod}
                         onChange={e => setTestMethod(e.target.value)}
@@ -460,10 +590,10 @@ export function AdvancedApiTester({ api: targetApi, project, onUpdateExamples, m
                     <button
                         onClick={runTest}
                         disabled={loading}
-                        className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2 rounded-lg text-xs font-bold flex items-center space-x-2 transition-all disabled:opacity-50 shadow-lg shadow-indigo-500/20 active:scale-95 shrink-0"
+                        className={`px-5 py-2 rounded-lg text-xs font-bold flex items-center space-x-2 transition-all disabled:opacity-50 shadow-lg active:scale-95 shrink-0 ${targetApi.apiType === 'SOAP' ? 'bg-amber-600 hover:bg-amber-500 shadow-amber-500/20' : 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-500/20'} text-white`}
                     >
                         {loading ? <Activity className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                        <span>{loading ? '...' : 'Send'}</span>
+                        <span>{loading ? 'Processing...' : 'Send Request'}</span>
                     </button>
                 </div>
             </div>
@@ -479,12 +609,14 @@ export function AdvancedApiTester({ api: targetApi, project, onUpdateExamples, m
                             { id: 'params', label: 'Params' },
                             { id: 'auth', label: 'Auth' },
                             { id: 'headers', label: 'Headers' },
-                            { id: 'body', label: 'Body' }
+                            { id: 'body', label: targetApi.apiType === 'SOAP' ? 'Envelope' : 'Body' }
                         ].map(t => (
                             <button
                                 key={t.id}
                                 onClick={() => setActiveReqTab(t.id)}
-                                className={`px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${activeReqTab === t.id ? 'border-indigo-500 text-white bg-slate-800/50' : 'border-transparent text-slate-500 hover:text-slate-300 hover:bg-slate-800/30'}`}
+                                className={`px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${activeReqTab === t.id
+                                    ? (targetApi.apiType === 'SOAP' ? 'border-amber-500 text-white bg-slate-800/50' : 'border-indigo-500 text-white bg-slate-800/50')
+                                    : 'border-transparent text-slate-500 hover:text-slate-300 hover:bg-slate-800/30'}`}
                             >
                                 {t.label}
                             </button>
@@ -586,6 +718,59 @@ export function AdvancedApiTester({ api: targetApi, project, onUpdateExamples, m
                                         )}
                                     </div>
                                 )}
+                                {targetApi.apiType === 'SOAP' && (
+                                    <div className="mt-8 border-t border-slate-800 pt-6">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <div className="flex items-center space-x-3 text-amber-500">
+                                                <Shield className="w-4 h-4" />
+                                                <h4 className="text-[10px] font-black uppercase tracking-[0.2em]">SOAP WS-Security Manager</h4>
+                                            </div>
+                                            <div onClick={() => setSoapWss({ ...soapWss, enabled: !soapWss.enabled })} className={`w-10 h-5 rounded-full p-1 cursor-pointer transition-colors ${soapWss.enabled ? 'bg-amber-600' : 'bg-slate-800'}`}>
+                                                <div className={`w-3 h-3 bg-white rounded-full transition-transform ${soapWss.enabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                                            </div>
+                                        </div>
+
+                                        {soapWss.enabled && (
+                                            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 animate-fade-in shadow-inner">
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div>
+                                                        <label className="block text-[9px] font-black text-slate-500 uppercase mb-2 tracking-widest pl-1">Username (WSS)</label>
+                                                        <input
+                                                            value={soapWss.username}
+                                                            onChange={e => setSoapWss({ ...soapWss, username: e.target.value })}
+                                                            placeholder="e.g. {{WSS_USER}}"
+                                                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-xs font-mono text-amber-400 outline-none focus:border-amber-500 shadow-sm"
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-[9px] font-black text-slate-500 uppercase mb-2 tracking-widest pl-1">Password (WSS)</label>
+                                                        <input
+                                                            value={soapWss.password}
+                                                            onChange={e => setSoapWss({ ...soapWss, password: e.target.value })}
+                                                            type="password"
+                                                            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-xs outline-none focus:border-amber-500"
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-6 pt-2">
+                                                    <label className="flex items-center space-x-2 cursor-pointer group">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={soapWss.addTimestamp}
+                                                            onChange={e => setSoapWss({ ...soapWss, addTimestamp: e.target.checked })}
+                                                            className="sr-only"
+                                                        />
+                                                        <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${soapWss.addTimestamp ? 'bg-amber-600 border-amber-600' : 'border-slate-700 bg-slate-800'}`}>
+                                                            {soapWss.addTimestamp && <CheckCircle className="w-3 h-3 text-white" />}
+                                                        </div>
+                                                        <span className="text-[10px] font-bold text-slate-500 group-hover:text-amber-400 uppercase tracking-tighter">Add Timestamp</span>
+                                                    </label>
+                                                    <div className="text-[9px] text-slate-600 font-bold bg-slate-950 px-2 py-1 rounded">Type: UsernameToken (Standard)</div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                                 {selectedProfileId && (
                                     <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400 text-sm font-bold flex items-center justify-center">
                                         <CheckCircle className="w-5 h-5 mr-3" /> Using Project Profile: {authProfiles.find(p => p.id === selectedProfileId)?.name}
@@ -595,18 +780,35 @@ export function AdvancedApiTester({ api: targetApi, project, onUpdateExamples, m
                         )}
                         {activeReqTab === 'body' && (
                             <div className="h-full flex flex-col">
-                                <div className="flex items-center space-x-2 mb-3 bg-slate-900 w-fit p-0.5 rounded-lg border border-slate-800">
+                                <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center space-x-2 bg-slate-900 p-0.5 rounded-lg border border-slate-800">
+                                        <button
+                                            onClick={() => setBodyFormat('json')}
+                                            className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${bodyFormat === 'json' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                                        >
+                                            JSON
+                                        </button>
+                                        <button
+                                            onClick={() => setBodyFormat('xml')}
+                                            className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${bodyFormat === 'xml' ? 'bg-amber-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                                        >
+                                            XML/SOAP
+                                        </button>
+                                    </div>
                                     <button
-                                        onClick={() => setBodyFormat('json')}
-                                        className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${bodyFormat === 'json' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                                        onClick={() => {
+                                            if (bodyFormat === 'xml') {
+                                                setTestBody(formatXml(testBody));
+                                            } else {
+                                                try {
+                                                    const obj = JSON.parse(testBody);
+                                                    setTestBody(JSON.stringify(obj, null, 4));
+                                                } catch (e) { toast.error("Invalid JSON"); }
+                                            }
+                                        }}
+                                        className="text-[10px] font-bold text-slate-400 hover:text-white flex items-center space-x-1.5 bg-slate-800 px-2 py-1 rounded border border-slate-700 transition-colors"
                                     >
-                                        JSON
-                                    </button>
-                                    <button
-                                        onClick={() => setBodyFormat('xml')}
-                                        className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all ${bodyFormat === 'xml' ? 'bg-amber-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
-                                    >
-                                        XML/SOAP
+                                        <Activity className="w-3 h-3" /> <span>Prettify</span>
                                     </button>
                                 </div>
                                 <textarea
@@ -635,7 +837,9 @@ export function AdvancedApiTester({ api: targetApi, project, onUpdateExamples, m
                                 <button
                                     key={t.id}
                                     onClick={() => setActiveResTab(t.id)}
-                                    className={`px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${activeResTab === t.id ? 'border-emerald-500 text-white bg-slate-800/50' : 'border-transparent text-slate-500 hover:text-slate-300 hover:bg-slate-800/30'}`}
+                                    className={`px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition-all ${activeResTab === t.id
+                                        ? (targetApi.apiType === 'SOAP' ? 'border-amber-500 text-white bg-slate-800/50' : 'border-emerald-500 text-white bg-slate-800/50')
+                                        : 'border-transparent text-slate-500 hover:text-slate-300 hover:bg-slate-800/30'}`}
                                 >
                                     {t.label}
                                 </button>

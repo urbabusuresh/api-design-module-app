@@ -92,6 +92,10 @@ async function initDb() {
                 console.log("Adding 'is_auth_api' column to module_api_catalog...");
                 await pool.query('ALTER TABLE module_api_catalog ADD COLUMN is_auth_api BOOLEAN DEFAULT FALSE');
             }
+            if (!modColNames.includes('api_type')) {
+                console.log("Adding 'api_type' column to module_api_catalog...");
+                await pool.query("ALTER TABLE module_api_catalog ADD COLUMN api_type VARCHAR(20) DEFAULT 'REST'");
+            }
 
             // Migration for project_modules
             const [pmColumns] = await pool.query('SHOW COLUMNS FROM project_modules');
@@ -107,6 +111,14 @@ async function initDb() {
             if (!pmColNames.includes('env_auth_profiles')) {
                 console.log("Adding 'env_auth_profiles' column to project_modules...");
                 await pool.query('ALTER TABLE project_modules ADD COLUMN env_auth_profiles JSON');
+            }
+
+            // Migration for api_catalog
+            const [catalogColumns] = await pool.query('SHOW COLUMNS FROM api_catalog');
+            const catalogColNames = catalogColumns.map(c => c.Field);
+            if (!catalogColNames.includes('api_type')) {
+                console.log("Adding 'api_type' column to api_catalog...");
+                await pool.query("ALTER TABLE api_catalog ADD COLUMN api_type VARCHAR(20) DEFAULT 'REST'");
             }
 
             // Migration for projects table (Global Variables)
@@ -712,6 +724,7 @@ app.post('/api/sub-apis', async (req, res) => {
         remarks: api.remarks || null,
         design_metadata: api.designMetadata ? JSON.stringify(api.designMetadata) : null,
         body_format: api.bodyFormat || 'json',
+        api_type: api.apiType || 'REST',
 
         // Convert frontend consumers/downstream back to channels JSON
         // FIX: Do NOT put downstream dependencies in 'southbound' channels array anymore, as we use api_dependencies table now.
@@ -1443,8 +1456,8 @@ app.post('/api/modules/:id/apis', async (req, res) => {
             const apiId = generateId('mapi');
             await pool.query(
                 `INSERT INTO module_api_catalog 
-                (id, module_id, api_name, url, http_method, description, swagger_reference, headers, request_body, response_body, authentication, status, is_auth_api, body_format) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, module_id, api_name, url, http_method, description, swagger_reference, headers, request_body, response_body, authentication, status, is_auth_api, body_format, api_type) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE
                 api_name = VALUES(api_name),
                 description = VALUES(description),
@@ -1454,7 +1467,8 @@ app.post('/api/modules/:id/apis', async (req, res) => {
                 response_body = VALUES(response_body),
                 authentication = VALUES(authentication),
                 is_auth_api = VALUES(is_auth_api),
-                body_format = VALUES(body_format)`,
+                body_format = VALUES(body_format),
+                api_type = VALUES(api_type)`,
                 [
                     apiId, id, item.name, item.url, item.method, item.description, item.swaggerRef,
                     JSON.stringify(item.headers || {}),
@@ -1463,7 +1477,8 @@ app.post('/api/modules/:id/apis', async (req, res) => {
                     JSON.stringify(item.authentication || { type: 'None' }),
                     'Active',
                     item.isAuthApi ? 1 : 0,
-                    item.bodyFormat || 'json'
+                    item.bodyFormat || 'json',
+                    item.apiType || 'REST'
                 ]
             );
         }
@@ -1480,7 +1495,7 @@ app.put('/api/modules/apis/:id', async (req, res) => {
         await pool.query(
             `UPDATE module_api_catalog SET 
                 api_name = ?, url = ?, http_method = ?, description = ?, swagger_reference = ?, 
-                headers = ?, request_body = ?, response_body = ?, authentication = ?, status = ?, is_auth_api = ?, body_format = ? 
+                headers = ?, request_body = ?, response_body = ?, authentication = ?, status = ?, is_auth_api = ?, body_format = ?, api_type = ? 
             WHERE id = ?`,
             [
                 api.name, api.url, api.method, api.description, api.swaggerRef,
@@ -1491,6 +1506,7 @@ app.put('/api/modules/apis/:id', async (req, res) => {
                 api.status || 'Active',
                 api.isAuthApi ? 1 : 0,
                 api.bodyFormat || 'json',
+                api.apiType || 'REST',
                 id
             ]
         );
@@ -1529,7 +1545,12 @@ app.post('/api/test-endpoint', async (req, res) => {
         const response = await fetch(url, {
             method: method || 'GET',
             headers: finalHeaders,
-            body: method !== 'GET' && hasBody ? (typeof body === 'object' ? JSON.stringify(body) : body) : undefined
+            // FIX: XML/SOAP bodies arrive as a raw string from the frontend.
+            // We must NOT JSON.stringify them — send the string as-is.
+            // JSON bodies (objects) are stringified normally.
+            body: method !== 'GET' && hasBody
+                ? (typeof body === 'string' ? body : JSON.stringify(body))
+                : undefined
         });
         const duration = Date.now() - start;
 
@@ -1731,10 +1752,48 @@ app.get('/api/proxy/wsdl', async (req, res) => {
             throw new Error('WSDL response is empty. Check the URL is accessible from the server.');
         }
 
-        // Simple WSDL Parser using regex (no XML library needed on server)
-        const opRegex = /<(?:wsdl:)?operation\s+name="([^"]+)"/gi;
-        const addressRegex = /<(?:soap:|soap12:|http:)?address\s+location="([^"]+)"/i;
+        // -----------------------------------------------------------------------
+        // WSDL Parser – extracts operations WITH their correct soapAction URIs
+        // -----------------------------------------------------------------------
+        // 1. Extract the target namespace (used to build fallback SOAPAction URIs)
+        const tnsMatch = xmlText.match(/targetNamespace="([^"]+)"/);
+        const targetNs = tnsMatch ? tnsMatch[1].replace(/\/$/, '') : '';
 
+        // 2. Extract address/endpoint from service section
+        const addressRegex = /<(?:soap:|soap12:|http:)?address\s+location="([^"]+)"/i;
+        const addressMatch = addressRegex.exec(xmlText);
+        const endpoint = addressMatch ? addressMatch[1] : '';
+
+        // 3. Build a map of operationName → soapAction from the binding section
+        //    Matches patterns like:
+        //      <soap:operation soapAction="http://tempuri.org/Multiply" ... />
+        //    These appear inside <wsdl:operation name="Multiply"> blocks in the binding
+        const soapActionMap = {};
+        // Match each binding operation block: capture op name and its soapAction
+        const bindingOpRegex = /<(?:wsdl:)?operation\s+name="([^"]+)"[^>]*>[\s\S]*?<(?:soap:|soap12:)?operation(?:[^>]*)(?:soapAction=["']([^"']*)["'])(?:[^>]*)\/?>/gi;
+        let bm;
+        while ((bm = bindingOpRegex.exec(xmlText)) !== null) {
+            soapActionMap[bm[1]] = bm[2] || '';
+        }
+        // Broader fallback: match standalone <soap:operation soapAction="..."> elements
+        if (Object.keys(soapActionMap).length === 0) {
+            const soaRegex = /<(?:soap:|soap12:)?operation[^>]+soapAction=["']([^"']*)["'][^>]*\/>/gi;
+            let sam;
+            while ((sam = soaRegex.exec(xmlText)) !== null) {
+                // Try to find the parent operation name from context
+                const before = xmlText.substring(Math.max(0, sam.index - 300), sam.index);
+                const parentMatch = before.match(/(?:wsdl:)?operation\s+name=["']([^"']+)["'][^>]*>\s*$/i);
+                if (parentMatch) soapActionMap[parentMatch[1]] = sam[1];
+            }
+        }
+
+        // 4. Extract the XML namespace prefix used for request body elements
+        //    e.g. xmlns:tns="http://tempuri.org/" or xmlns:ns1="..."
+        const nsAliasMatch = xmlText.match(/xmlns:(tns|ns1|ns0|ser)=["']([^"']+)["']/);
+        const nsAlias = nsAliasMatch ? nsAliasMatch[1] : null;
+
+        // 5. Extract all portType operations (abstract interface)
+        const opRegex = /<(?:wsdl:)?operation\s+name="([^"]+)"/gi;
         const operations = [];
         const seen = new Set();
         let match;
@@ -1743,25 +1802,51 @@ app.get('/api/proxy/wsdl', async (req, res) => {
             const name = match[1];
             if (!seen.has(name)) {
                 seen.add(name);
+
+                // Resolve the correct SOAPAction:
+                // Priority: explicit binding soapAction → targetNs/opName → opName only
+                let soapAction = soapActionMap[name];
+                if (soapAction === undefined) {
+                    soapAction = targetNs ? `${targetNs}/${name}` : name;
+                }
+                // SOAPAction spec requires it to be a quoted string (RFC 2616)
+                // We store it unquoted here; the client/server adds quotes when needed
+
+                // Build namespace-aware SOAP body element
+                const bodyElement = nsAlias ? `${nsAlias}:${name}` : name;
+                const nsDeclaration = nsAlias && nsAliasMatch
+                    ? ` xmlns:${nsAlias}="${nsAliasMatch[2]}"`
+                    : (targetNs ? ` xmlns="${targetNs}"` : '');
+
+                const soapTemplate =
+                    `<?xml version="1.0" encoding="UTF-8"?>\n` +
+                    `<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"${nsAlias && nsAliasMatch ? ` xmlns:${nsAlias}="${nsAliasMatch[2]}"` : (targetNs ? ` xmlns:tns="${targetNs}"` : '')}>\n` +
+                    `   <soapenv:Header/>\n` +
+                    `   <soapenv:Body>\n` +
+                    `      <${bodyElement}>\n` +
+                    `         <!-- Add parameters here -->\n` +
+                    `      </${bodyElement}>\n` +
+                    `   </soapenv:Body>\n` +
+                    `</soapenv:Envelope>`;
+
                 operations.push({
                     name,
                     description: `SOAP Operation: ${name}`,
                     method: 'POST',
                     bodyFormat: 'xml',
-                    soapTemplate: `<?xml version="1.0" encoding="UTF-8"?>\n<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">\n   <soapenv:Header/>\n   <soapenv:Body>\n      <${name}>\n         <!-- Add parameters here -->\n      </${name}>\n   </soapenv:Body>\n</soapenv:Envelope>`
+                    soapAction,      // proper URI, not just the name
+                    soapTemplate
                 });
             }
         }
 
-        const addressMatch = addressRegex.exec(xmlText);
-        const endpoint = addressMatch ? addressMatch[1] : '';
-
-        res.json({ endpoint, operations });
+        res.json({ endpoint, operations, targetNamespace: targetNs });
     } catch (err) {
         console.error('WSDL Proxy Error:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
+
 
 // Generic proxy for fetching remote XML/Swagger specs (avoids CORS)
 app.get('/api/proxy/swagger', async (req, res) => {

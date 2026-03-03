@@ -43,6 +43,11 @@ export function WsdlDownstreamForm({ onCancel, onAdd }) {
 
 
     const handleSelectOperation = (op) => {
+        // SOAPAction spec (RFC 2396): must be a quoted URI string
+        // Use the soapAction extracted from the WSDL binding, not just the op name
+        const soapAction = op.soapAction || op.name;
+        const quotedSoapAction = soapAction.startsWith('"') ? soapAction : `"${soapAction}"`;
+
         onAdd({
             name: op.name,
             url: endpoint || op.url || "",
@@ -51,12 +56,17 @@ export function WsdlDownstreamForm({ onCancel, onAdd }) {
             authType: "None",
             priority: 1,
             bodyFormat: 'xml',
-            // Use pre-built SOAP template from server parser
+            // Correct SOAP headers: Content-Type must be text/xml, SOAPAction must be a quoted URI
+            headers: [
+                { key: 'Content-Type', value: 'text/xml; charset=utf-8' },
+                { key: 'SOAPAction', value: quotedSoapAction }
+            ],
             request: op.soapTemplate,
             providerSystem: ""
         });
         toast.success(`Imported SOAP operation: ${op.name}`);
     };
+
 
     return (
         <div className="space-y-4 animate-fade-in">

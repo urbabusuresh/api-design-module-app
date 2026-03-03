@@ -29,7 +29,6 @@ export function ModuleViewer({ module, environments = [], selectedEnv: globalSel
     const [envAuthProfiles, setEnvAuthProfiles] = useState(typeof module.env_auth_profiles === 'string' ? JSON.parse(module.env_auth_profiles) : module.env_auth_profiles || {});
 
     const [viewMode, setViewMode] = useState('list');
-    // REMOVED local selectedEnv state to use globalSelectedEnv prop
     const selectedEnv = globalSelectedEnv || 'DEV';
     const [loadSwaggerRequested, setLoadSwaggerRequested] = useState(false);
 
@@ -237,9 +236,8 @@ export function ModuleViewer({ module, environments = [], selectedEnv: globalSel
                         <ModuleApiCatalog module={module} project={project} selectedEnv={selectedEnv} />
                     )}
                 </div>
-            )
-            }
-        </div >
+            )}
+        </div>
     );
 }
 
@@ -254,7 +252,7 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
     const [showCollectionRunner, setShowCollectionRunner] = useState(false);
     const [showPostmanImporter, setShowPostmanImporter] = useState(false);
     const [showResponseDiff, setShowResponseDiff] = useState(false);
-    const [showApiStatus, setShowApiStatus] = useState(null); // api item
+    const [showApiStatus, setShowApiStatus] = useState(null);
     const [bulkMode, setBulkMode] = useState(false);
     const [bulkSelected, setBulkSelected] = useState(new Set());
     const [bulkStatus, setBulkStatus] = useState('');
@@ -280,7 +278,7 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
             if (apiData.id) {
                 await api.updateModuleApi(apiData.id, apiData);
             } else {
-                await api.addModuleApis(module.id, apiData);
+                await api.addModuleApis(module.id, [apiData]);
             }
             setSelectedApi(null);
             setIsCreating(false);
@@ -312,7 +310,8 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
                 request_body: apiItem.request_body || {},
                 response_body: apiItem.response_body || {},
                 authentication: apiItem.authentication || { type: 'None' },
-                isAuthApi: apiItem.is_auth_api || false
+                isAuthApi: apiItem.is_auth_api || false,
+                apiType: apiItem.api_type || 'REST'
             };
             await api.addModuleApis(module.id, [copy]);
             toast.success("API duplicated successfully", { id: toastId });
@@ -327,7 +326,6 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
         const toastId = toast.loading("Fetching and parsing Swagger...");
 
         try {
-            // 1. Get Swagger Content
             let content = module.swagger_content;
             if (module.swagger_url && !content) {
                 content = await api.fetchProxySwagger(module.swagger_url);
@@ -338,7 +336,6 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
                 return;
             }
 
-            // 2. Parse (Handle JSON)
             try {
                 swaggerObj = JSON.parse(content);
             } catch (e) {
@@ -346,7 +343,6 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
                 return;
             }
 
-            // 3. Extract APIs
             const extractedApis = [];
             const paths = swaggerObj.paths || {};
 
@@ -361,11 +357,12 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
                             method: method.toUpperCase(),
                             description: op.description || op.summary || "",
                             swaggerRef: op.operationId || "",
-                            headers: {}, // Can be enriched from parameters if needed
-                            request_body: {}, // Can be enriched if needed
+                            headers: {},
+                            request_body: {},
                             response_body: {},
                             authentication: { type: 'None' },
-                            isAuthApi: false
+                            isAuthApi: false,
+                            apiType: 'REST'
                         });
                     }
                 });
@@ -376,7 +373,6 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
                 return;
             }
 
-            // 4. Save to DB
             await api.addModuleApis(module.id, extractedApis);
             toast.success(`Successfully synced ${extractedApis.length} APIs to catalog!`, { id: toastId });
             loadApis();
@@ -391,7 +387,6 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
         if (!wsdlImport.url.trim()) return;
         setWsdlImport(prev => ({ ...prev, loading: true, error: '', operations: [], selected: new Set() }));
         try {
-            // apiClient.fetchWsdl() → token auto-injected, routed via backend proxy
             const data = await apiClient.fetchWsdl(wsdlImport.url.trim());
             if (!data.operations?.length) throw new Error('No operations found in WSDL');
             setWsdlImport(prev => ({
@@ -399,7 +394,7 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
                 loading: false,
                 operations: data.operations,
                 endpoint: data.endpoint || '',
-                selected: new Set(data.operations.map((_, i) => i)) // select all by default
+                selected: new Set(data.operations.map((_, i) => i))
             }));
             toast.success(`Found ${data.operations.length} operations`);
         } catch (err) {
@@ -412,19 +407,28 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
         if (!toImport.length) { toast.error('Select at least one operation'); return; }
         const toastId = toast.loading(`Importing ${toImport.length} SOAP operations...`);
         try {
-            const apiItems = toImport.map(op => ({
-                name: op.name,
-                url: wsdlImport.endpoint || wsdlImport.url.replace(/\?wsdl$/i, ''),
-                method: 'POST',
-                description: op.description || `SOAP Operation: ${op.name}`,
-                swaggerRef: op.name,
-                headers: { 'Content-Type': 'text/xml; charset=utf-8', 'SOAPAction': `"${op.name}"` },
-                request_body: op.soapTemplate || `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Header/><soapenv:Body><${op.name}/></soapenv:Body></soapenv:Envelope>`,
-                response_body: {},
-                authentication: { type: 'None' },
-                isAuthApi: false,
-                bodyFormat: 'xml'
-            }));
+            const apiItems = toImport.map(op => {
+                const rawSoapAction = op.soapAction || op.name;
+                const quotedSoapAction = rawSoapAction.startsWith('"') ? rawSoapAction : `"${rawSoapAction}"`;
+
+                return {
+                    name: op.name,
+                    url: wsdlImport.endpoint || wsdlImport.url.replace(/\?wsdl$/i, ''),
+                    method: 'POST',
+                    description: op.description || `SOAP Operation: ${op.name}`,
+                    swaggerRef: op.name,
+                    headers: {
+                        'Content-Type': 'text/xml; charset=utf-8',
+                        'SOAPAction': quotedSoapAction
+                    },
+                    request_body: op.soapTemplate || `<?xml version="1.0" encoding="UTF-8"?><soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"><soapenv:Header/><soapenv:Body><${op.name}/></soapenv:Body></soapenv:Envelope>`,
+                    response_body: {},
+                    authentication: { type: 'None' },
+                    isAuthApi: false,
+                    bodyFormat: 'xml',
+                    apiType: 'SOAP'
+                };
+            });
             await api.addModuleApis(module.id, apiItems);
             toast.success(`Imported ${apiItems.length} SOAP operations!`, { id: toastId });
             setWsdlImport({ open: false, url: '', loading: false, operations: [], endpoint: '', error: '', selected: new Set() });
@@ -432,14 +436,6 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
         } catch (err) {
             toast.error(`Import failed: ${err.message}`, { id: toastId });
         }
-    };
-
-    const toggleWsdlOp = (idx) => {
-        setWsdlImport(prev => {
-            const next = new Set(prev.selected);
-            if (next.has(idx)) next.delete(idx); else next.add(idx);
-            return { ...prev, selected: next };
-        });
     };
 
     const handleBulkStatusUpdate = async () => {
@@ -486,7 +482,7 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
             <div className="px-6 py-4 flex justify-between items-center bg-white border-b border-slate-200 shrink-0">
                 <div>
                     <h3 className="text-sm font-bold text-slate-800">API Catalog</h3>
-                    <p className="text-[10px] text-slate-500 font-medium">Manage APIs associated with this module for downstream mapping.</p>
+                    <p className="text-[10px] text-slate-500 font-medium">Manage APIs associated with this module.</p>
                 </div>
                 <div className="flex items-center space-x-3">
                     <div className="relative">
@@ -499,95 +495,45 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
                             className="bg-slate-100 border border-slate-200 rounded-lg pl-9 pr-4 py-1.5 text-[10px] text-slate-700 outline-none w-48 focus:border-indigo-500/50 transition-all"
                         />
                     </div>
-                    <button
-                        onClick={handleSyncSwagger}
-                        title="Extract endpoints from Swagger definition and save to DB"
-                        className="flex items-center space-x-2 px-3 py-1.5 border border-indigo-600/30 text-indigo-600 rounded-lg text-[10px] font-bold hover:bg-indigo-50 transition-all"
-                    >
-                        <Activity className="w-3.5 h-3.5" /> <span>Sync from Swagger</span>
+                    <button onClick={handleSyncSwagger} className="flex items-center space-x-2 px-3 py-1.5 border border-indigo-600/30 text-indigo-600 rounded-lg text-[10px] font-bold hover:bg-indigo-50">
+                        <Activity className="w-3.5 h-3.5" /> <span>Sync Swagger</span>
                     </button>
-                    <button
-                        onClick={() => setWsdlImport(prev => ({ ...prev, open: true }))}
-                        title="Import SOAP operations from a WSDL URL"
-                        className="flex items-center space-x-2 px-3 py-1.5 border border-amber-500/30 text-amber-600 rounded-lg text-[10px] font-bold hover:bg-amber-50 transition-all"
-                    >
+                    <button onClick={() => setWsdlImport(prev => ({ ...prev, open: true }))} className="flex items-center space-x-2 px-3 py-1.5 border border-amber-500/30 text-amber-600 rounded-lg text-[10px] font-bold hover:bg-amber-50">
                         <Code className="w-3.5 h-3.5" /> <span>Import WSDL</span>
                     </button>
-                    <button
-                        onClick={() => setShowPostmanImporter(true)}
-                        title="Import from Postman Collection JSON"
-                        className="flex items-center space-x-2 px-3 py-1.5 border border-orange-500/30 text-orange-600 rounded-lg text-[10px] font-bold hover:bg-orange-50 transition-all"
-                    >
+                    <button onClick={() => setShowPostmanImporter(true)} className="flex items-center space-x-2 px-3 py-1.5 border border-orange-500/30 text-orange-600 rounded-lg text-[10px] font-bold hover:bg-orange-50">
                         <FileJson2 className="w-3.5 h-3.5" /> <span>Postman</span>
                     </button>
-                    <button
-                        onClick={() => setShowHealthMonitor(true)}
-                        title="Run API health check"
-                        className="flex items-center space-x-2 px-3 py-1.5 border border-emerald-500/30 text-emerald-600 rounded-lg text-[10px] font-bold hover:bg-emerald-50 transition-all"
-                    >
+                    <button onClick={() => setShowHealthMonitor(true)} className="flex items-center space-x-2 px-3 py-1.5 border border-emerald-500/30 text-emerald-600 rounded-lg text-[10px] font-bold hover:bg-emerald-50">
                         <Heart className="w-3.5 h-3.5" /> <span>Health</span>
                     </button>
-                    <button
-                        onClick={() => setShowCollectionRunner(true)}
-                        title="Run all APIs as a collection"
-                        className="flex items-center space-x-2 px-3 py-1.5 border border-violet-500/30 text-violet-600 rounded-lg text-[10px] font-bold hover:bg-violet-50 transition-all"
-                    >
+                    <button onClick={() => setShowCollectionRunner(true)} className="flex items-center space-x-2 px-3 py-1.5 border border-violet-500/30 text-violet-600 rounded-lg text-[10px] font-bold hover:bg-violet-50">
                         <Play className="w-3.5 h-3.5" /> <span>Run</span>
                     </button>
-                    <button
-                        onClick={() => setShowResponseDiff(true)}
-                        title="Compare responses across environments"
-                        className="flex items-center space-x-2 px-3 py-1.5 border border-cyan-500/30 text-cyan-600 rounded-lg text-[10px] font-bold hover:bg-cyan-50 transition-all"
-                    >
+                    <button onClick={() => setShowResponseDiff(true)} className="flex items-center space-x-2 px-3 py-1.5 border border-cyan-500/30 text-cyan-600 rounded-lg text-[10px] font-bold hover:bg-cyan-50">
                         <GitCompare className="w-3.5 h-3.5" /> <span>Diff</span>
                     </button>
-                    <button
-                        onClick={() => { setBulkMode(m => !m); setBulkSelected(new Set()); }}
-                        title="Bulk-select and edit multiple APIs"
-                        className={`flex items-center space-x-2 px-3 py-1.5 border rounded-lg text-[10px] font-bold transition-all ${bulkMode ? 'border-amber-500/60 bg-amber-500/10 text-amber-600' : 'border-amber-500/30 text-amber-600 hover:bg-amber-50'}`}
-                    >
+                    <button onClick={() => { setBulkMode(m => !m); setBulkSelected(new Set()); }} className={`flex items-center space-x-2 px-3 py-1.5 border rounded-lg text-[10px] font-bold transition-all ${bulkMode ? 'border-amber-500/60 bg-amber-500/10 text-amber-600' : 'border-amber-500/30 text-amber-600 hover:bg-amber-50'}`}>
                         <List className="w-3.5 h-3.5" /> <span>Bulk</span>
                     </button>
-                    <button
-                        onClick={() => setIsCreating(true)}
-                        className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center space-x-2 transition-all shadow-md shadow-indigo-500/10"
-                    >
+                    <button onClick={() => setIsCreating(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center space-x-2 transition-all shadow-md">
                         <Plus className="w-3.5 h-3.5" /> <span>Add API</span>
                     </button>
                 </div>
             </div>
 
-            {/* Bulk Edit Toolbar */}
             {bulkMode && (
                 <div className="px-6 py-2 bg-amber-500/5 border-b border-amber-500/20 flex items-center gap-3">
                     <span className="text-[10px] font-bold text-amber-500">{bulkSelected.size} selected</span>
                     <button onClick={() => setBulkSelected(new Set(apis.map(a => a.id)))} className="text-[9px] text-slate-500 hover:text-slate-300 font-bold">Select All</button>
                     <button onClick={() => setBulkSelected(new Set())} className="text-[9px] text-slate-500 hover:text-slate-300 font-bold">Clear</button>
                     <div className="flex-1" />
-                    <label className="text-[9px] font-bold text-slate-500 uppercase">Set Status:</label>
-                    <select
-                        value={bulkStatus}
-                        onChange={e => setBulkStatus(e.target.value)}
-                        className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-[10px] text-white outline-none"
-                    >
-                        <option value="">-- Choose --</option>
+                    <select value={bulkStatus} onChange={e => setBulkStatus(e.target.value)} className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-[10px] text-white outline-none">
+                        <option value="">-- Set Status --</option>
                         {['Draft', 'Review', 'Active', 'Deprecated', 'Retired'].map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
-                    <button
-                        onClick={handleBulkStatusUpdate}
-                        disabled={!bulkSelected.size || !bulkStatus}
-                        className="bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white px-3 py-1 rounded text-[10px] font-bold transition-colors"
-                    >
-                        Apply Status
-                    </button>
-                    <button
-                        onClick={handleBulkDelete}
-                        disabled={!bulkSelected.size}
-                        className="bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white px-3 py-1 rounded text-[10px] font-bold transition-colors"
-                    >
-                        Delete Selected
-                    </button>
-                    <button onClick={() => { setBulkMode(false); setBulkSelected(new Set()); }} className="text-[9px] text-slate-500 hover:text-slate-300 font-bold">Cancel</button>
+                    <button onClick={handleBulkStatusUpdate} disabled={!bulkSelected.size || !bulkStatus} className="bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white px-3 py-1 rounded text-[10px] font-bold">Apply</button>
+                    <button onClick={handleBulkDelete} disabled={!bulkSelected.size} className="bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white px-3 py-1 rounded text-[10px] font-bold">Delete</button>
                 </div>
             )}
 
@@ -598,16 +544,11 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
                     <div className="flex flex-col items-center justify-center h-64 text-slate-400 border-2 border-dashed border-slate-200 rounded-3xl">
                         <LayersIcon className="w-12 h-12 opacity-20 mb-4" />
                         <p className="font-medium uppercase tracking-wider text-[10px]">No APIs in Catalog</p>
-                        <p className="text-xs mt-1">Import from Swagger or add manually to start mapping.</p>
-                        <button onClick={() => setIsCreating(true)} className="mt-6 px-6 py-2 bg-slate-900 text-white text-[10px] font-bold rounded-xl hover:bg-slate-800 transition-all">Add Manual API</button>
+                        <button onClick={() => setIsCreating(true)} className="mt-6 px-6 py-2 bg-slate-900 text-white text-[10px] font-bold rounded-xl">Add Manual API</button>
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {apis.filter(a =>
-                            !catalogSearch ||
-                            a.api_name.toLowerCase().includes(catalogSearch.toLowerCase()) ||
-                            a.url.toLowerCase().includes(catalogSearch.toLowerCase())
-                        ).map(apiItem => (
+                        {apis.filter(a => !catalogSearch || a.api_name.toLowerCase().includes(catalogSearch.toLowerCase()) || a.url.toLowerCase().includes(catalogSearch.toLowerCase())).map(apiItem => (
                             <div
                                 key={apiItem.id}
                                 onClick={() => {
@@ -630,92 +571,30 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
                                         response_body: apiItem.response_body,
                                         authentication: apiItem.authentication,
                                         swaggerRef: apiItem.swagger_reference,
-                                        isAuthApi: apiItem.is_auth_api
+                                        isAuthApi: apiItem.is_auth_api,
+                                        apiType: apiItem.api_type || 'REST'
                                     });
                                 }}
                                 className={`bg-white border rounded-2xl p-4 hover:shadow-lg transition-all group cursor-pointer ${bulkSelected.has(apiItem.id) ? 'border-amber-400 ring-1 ring-amber-400/40' : 'border-slate-200'}`}
                             >
                                 <div className="flex justify-between items-start mb-2">
                                     <div className="flex items-center gap-2">
-                                        {bulkMode && (
-                                            <input
-                                                type="checkbox"
-                                                checked={bulkSelected.has(apiItem.id)}
-                                                onChange={(e) => {
-                                                    e.stopPropagation();
-                                                    setBulkSelected(prev => {
-                                                        const n = new Set(prev);
-                                                        n.has(apiItem.id) ? n.delete(apiItem.id) : n.add(apiItem.id);
-                                                        return n;
-                                                    });
-                                                }}
-                                                className="w-3.5 h-3.5 accent-amber-500 cursor-pointer"
-                                            />
-                                        )}
                                         <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${apiItem.http_method === 'GET' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-blue-500/10 text-blue-600'}`}>{apiItem.http_method}</span>
+                                        <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter ${apiItem.api_type === 'SOAP' ? 'bg-amber-100 text-amber-700' : apiItem.api_type === 'GRAPHQL' ? 'bg-pink-100 text-pink-700' : 'bg-slate-100 text-slate-700'}`}>
+                                            {apiItem.api_type || 'REST'}
+                                        </span>
                                     </div>
                                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); setShowApiStatus(apiItem); }}
-                                            className="p-1 text-slate-400 hover:text-indigo-500 transition-all"
-                                            title="Change Status Workflow"
-                                        >
-                                            <GitBranch className="w-3.5 h-3.5" />
-                                        </button>
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); handleDuplicate(apiItem); }}
-                                            className="p-1 text-slate-400 hover:text-indigo-500 transition-all"
-                                            title="Duplicate API"
-                                        >
-                                            <Copy className="w-3.5 h-3.5" />
-                                        </button>
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); handleDelete(apiItem.id); }}
-                                            className="p-1 text-slate-400 hover:text-red-500 transition-all"
-                                            title="Delete API"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
+                                        <button onClick={(e) => { e.stopPropagation(); handleDuplicate(apiItem); }} className="p-1 text-slate-400 hover:text-indigo-500" title="Duplicate"><Copy className="w-3.5 h-3.5" /></button>
+                                        <button onClick={(e) => { e.stopPropagation(); handleDelete(apiItem.id); }} className="p-1 text-slate-400 hover:text-red-500" title="Delete"><Trash2 className="w-4 h-4" /></button>
                                     </div>
                                 </div>
                                 <h4 className="text-sm font-bold text-slate-800 mb-1 truncate">{apiItem.api_name}</h4>
                                 <p className="text-xs text-slate-500 font-mono truncate mb-3">{apiItem.url}</p>
-                                {apiItem.description && (
-                                    <div className="text-[10px] text-slate-500 mb-2 line-clamp-2 prose prose-xs max-w-none">
-                                        <ReactMarkdown>{apiItem.description}</ReactMarkdown>
-                                    </div>
-                                )}
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-2">
-                                        <div className="flex items-center text-[10px] text-indigo-500 font-bold uppercase tracking-tighter">
-                                            {apiItem.swagger_reference && <><BookOpen className="w-3 h-3 mr-1" /> Linked</>}
-                                        </div>
-                                        {apiItem.is_auth_api && (
-                                            <span className="text-[8px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-black uppercase flex items-center gap-1">
-                                                <Key className="w-2.5 h-2.5" /> Auth API
-                                            </span>
-                                        )}
-                                        {apiItem.status && (
-                                            <span className={`text-[8px] px-1.5 py-0.5 rounded font-black uppercase ${apiItem.status === 'Active' ? 'bg-emerald-100 text-emerald-700' :
-                                                apiItem.status === 'Draft' ? 'bg-slate-100 text-slate-700' :
-                                                    apiItem.status === 'Deprecated' ? 'bg-orange-100 text-orange-700' :
-                                                        'bg-indigo-100 text-indigo-700'
-                                                }`}>
-                                                {apiItem.status}
-                                            </span>
-                                        )}
-                                    </div>
-                                    <div className="flex space-x-2">
-                                        {(apiItem.headers && Object.keys(apiItem.headers).length > 0) && (
-                                            <div title="Contains Headers" className="w-4 h-4 rounded bg-slate-100 flex items-center justify-center">
-                                                <Shield className="w-2.5 h-2.5 text-slate-400" />
-                                            </div>
-                                        )}
-                                        {(apiItem.request_body && Object.keys(apiItem.request_body).length > 0) && (
-                                            <div title="Contains Payload" className="w-4 h-4 rounded bg-slate-100 flex items-center justify-center">
-                                                <Box className="w-2.5 h-2.5 text-slate-400" />
-                                            </div>
-                                        )}
+                                        {apiItem.is_auth_api && <span className="text-[8px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-black uppercase flex items-center gap-1"><Key className="w-2.5 h-2.5" /> Auth</span>}
+                                        {apiItem.status && <span className="text-[8px] px-1.5 py-0.5 rounded font-black uppercase bg-indigo-100 text-indigo-700">{apiItem.status}</span>}
                                     </div>
                                 </div>
                             </div>
@@ -779,120 +658,90 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
                 />
             )}
 
-            {/* WSDL Import Modal */}
             {wsdlImport.open && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setWsdlImport(prev => ({ ...prev, open: false }))}>
-                    <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-[650px] max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-                        {/* Header */}
-                        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
-                            <div className="flex items-center space-x-2">
-                                <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                                    <Code className="w-4 h-4 text-amber-400" />
+                <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 backdrop-blur-md p-4" onClick={() => setWsdlImport(prev => ({ ...prev, open: false }))}>
+                    <div className="bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden animate-scale-in" onClick={e => e.stopPropagation()}>
+                        <div className="px-8 py-6 border-b border-slate-800 bg-slate-950/50 flex justify-between items-center">
+                            <div className="flex items-center space-x-3">
+                                <div className="p-2 bg-amber-500/20 rounded-xl">
+                                    <Code className="w-5 h-5 text-amber-500" />
                                 </div>
                                 <div>
-                                    <h3 className="text-sm font-bold text-white">Import from WSDL</h3>
-                                    <p className="text-[10px] text-slate-500">Fetch SOAP operations and add them to this module's catalog</p>
+                                    <h3 className="text-lg font-bold text-white leading-tight">Import WSDL / SOAP Service</h3>
+                                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">Automated SOAP Discovery Engine</p>
                                 </div>
                             </div>
-                            <button onClick={() => setWsdlImport(prev => ({ ...prev, open: false }))} className="p-2 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg transition-colors">
-                                <X className="w-4 h-4" />
+                            <button onClick={() => setWsdlImport(prev => ({ ...prev, open: false }))} className="p-2 hover:bg-slate-800 text-slate-400 hover:text-white rounded-xl transition-colors">
+                                <X className="w-5 h-5" />
                             </button>
                         </div>
 
-                        {/* Body */}
-                        <div className="flex-1 overflow-y-auto p-6 space-y-5">
-                            {/* URL Input */}
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">WSDL URL</label>
-                                <div className="flex gap-2">
-                                    <div className="flex-1 flex items-center bg-slate-950 border border-slate-700 rounded-xl px-3 focus-within:border-amber-500/50 transition-colors">
-                                        <Globe className="w-3.5 h-3.5 text-slate-600 mr-2 shrink-0" />
+                        <div className="p-8 space-y-6">
+                            <div className="space-y-3">
+                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest pl-1">WSDL URL (Metadata Endpoint)</label>
+                                <div className="flex space-x-3">
+                                    <div className="flex-1 relative">
+                                        <Globe className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-slate-600" />
                                         <input
                                             value={wsdlImport.url}
-                                            onChange={e => setWsdlImport(prev => ({ ...prev, url: e.target.value, error: '' }))}
-                                            onKeyDown={e => e.key === 'Enter' && handleParseWsdl()}
-                                            placeholder="https://example.com/service?wsdl"
-                                            className="flex-1 bg-transparent py-2.5 text-sm text-white font-mono outline-none placeholder-slate-700"
+                                            onChange={e => setWsdlImport(prev => ({ ...prev, url: e.target.value }))}
+                                            className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-12 pr-4 py-4 text-sm text-white font-mono outline-none focus:border-amber-500/50 shadow-inner"
+                                            placeholder="https://example.com/Service.svc?wsdl"
                                         />
                                     </div>
                                     <button
                                         onClick={handleParseWsdl}
                                         disabled={wsdlImport.loading || !wsdlImport.url.trim()}
-                                        className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white px-4 rounded-xl text-xs font-bold flex items-center space-x-2 transition-all shadow-lg shadow-amber-900/20"
+                                        className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white px-8 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-lg shadow-amber-600/20"
                                     >
-                                        {wsdlImport.loading ? <Activity className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
-                                        <span>{wsdlImport.loading ? 'Parsing...' : 'Parse'}</span>
+                                        {wsdlImport.loading ? 'Scanning...' : 'Discovery'}
                                     </button>
                                 </div>
-                                <p className="text-[9px] text-slate-600">Try: <span className="font-mono text-slate-500">http://www.dneonline.com/calculator.asmx?WSDL</span></p>
+                                {wsdlImport.error && <p className="text-red-400 text-[10px] font-bold mt-2 flex items-center gap-2"><AlertCircle className="w-3.5 h-3.5" /> {wsdlImport.error}</p>}
                             </div>
 
-                            {/* Error */}
-                            {wsdlImport.error && (
-                                <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-medium p-3 rounded-xl flex items-start space-x-2">
-                                    <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                                    <span>{wsdlImport.error}</span>
-                                </div>
-                            )}
-
-                            {/* Endpoint info */}
-                            {wsdlImport.endpoint && (
-                                <div className="text-[10px] text-slate-500 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 font-mono flex items-center gap-2">
-                                    <Globe className="w-3 h-3 text-amber-500 shrink-0" />
-                                    <span className="truncate">Service Endpoint: <span className="text-amber-400">{wsdlImport.endpoint}</span></span>
-                                </div>
-                            )}
-
-                            {/* Operations List */}
                             {wsdlImport.operations.length > 0 && (
-                                <div className="space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                                            Operations
-                                            <span className="ml-2 bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded text-[9px]">{wsdlImport.operations.length}</span>
-                                        </label>
-                                        <div className="flex items-center gap-2">
-                                            <button onClick={() => setWsdlImport(prev => ({ ...prev, selected: new Set(prev.operations.map((_, i) => i)) }))} className="text-[9px] text-indigo-400 hover:text-indigo-300 font-bold">Select All</button>
-                                            <span className="text-slate-700">|</span>
-                                            <button onClick={() => setWsdlImport(prev => ({ ...prev, selected: new Set() }))} className="text-[9px] text-slate-500 hover:text-slate-300 font-bold">Deselect All</button>
+                                <div className="space-y-4 animate-fade-in">
+                                    <div className="flex justify-between items-center px-1">
+                                        <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest">Select Operations ({wsdlImport.selected.size})</h4>
+                                        <div className="flex gap-4">
+                                            <button onClick={() => setWsdlImport(prev => ({ ...prev, selected: new Set(wsdlImport.operations.map((_, i) => i)) }))} className="text-[10px] font-bold text-amber-500 hover:text-amber-400 transition-colors">Select All</button>
+                                            <button onClick={() => setWsdlImport(prev => ({ ...prev, selected: new Set() }))} className="text-[10px] font-bold text-slate-500 hover:text-slate-300 transition-colors">Clear</button>
                                         </div>
                                     </div>
-                                    <div className="bg-slate-950 border border-slate-800 rounded-xl divide-y divide-slate-800 max-h-64 overflow-y-auto">
+                                    <div className="bg-slate-950 border border-slate-800 rounded-2xl max-h-[250px] overflow-y-auto divide-y divide-slate-800 shadow-inner custom-scrollbar">
                                         {wsdlImport.operations.map((op, idx) => (
                                             <div
                                                 key={idx}
-                                                onClick={() => toggleWsdlOp(idx)}
-                                                className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors hover:bg-slate-800/50 ${wsdlImport.selected.has(idx) ? 'bg-amber-500/5' : ''}`}
+                                                onClick={() => setWsdlImport(prev => {
+                                                    const next = new Set(prev.selected);
+                                                    next.has(idx) ? next.delete(idx) : next.add(idx);
+                                                    return { ...prev, selected: next };
+                                                })}
+                                                className={`flex items-center px-6 py-4 cursor-pointer hover:bg-slate-900 transition-colors group ${wsdlImport.selected.has(idx) ? 'bg-amber-500/5' : ''}`}
                                             >
-                                                <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${wsdlImport.selected.has(idx) ? 'bg-amber-500 border-amber-500' : 'border-slate-600'}`}>
-                                                    {wsdlImport.selected.has(idx) && <CheckCircle className="w-3 h-3 text-white" />}
+                                                <div className={`w-5 h-5 rounded-md border-2 mr-4 flex items-center justify-center transition-all ${wsdlImport.selected.has(idx) ? 'bg-amber-600 border-amber-600 shadow-lg shadow-amber-600/20' : 'border-slate-700'}`}>
+                                                    {wsdlImport.selected.has(idx) && <CheckSquare className="w-3.5 h-3.5 text-white" />}
                                                 </div>
-                                                <div className="overflow-hidden">
-                                                    <div className="text-sm font-semibold text-white truncate">{op.name}</div>
-                                                    <div className="text-[9px] text-slate-500 truncate">{op.description}</div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="text-sm font-bold text-slate-300 group-hover:text-amber-500 transition-colors">{op.name}</div>
+                                                    <div className="text-[10px] text-slate-600 font-mono truncate uppercase tracking-tighter mt-0.5">{op.soapAction || 'No SOAP Action Defined'}</div>
                                                 </div>
-                                                <span className="ml-auto text-[9px] bg-amber-500/10 text-amber-500 px-1.5 py-0.5 rounded font-bold shrink-0">POST/XML</span>
                                             </div>
                                         ))}
                                     </div>
-                                    <p className="text-[9px] text-slate-600">Each selected operation will be added as a separate API entry with a SOAP Envelope template.</p>
+
+                                    <div className="pt-6 border-t border-slate-800 flex justify-end">
+                                        <button
+                                            onClick={handleImportSelectedWsdlOps}
+                                            disabled={wsdlImport.selected.size === 0}
+                                            className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-10 py-4 rounded-2xl text-xs font-black uppercase tracking-[0.15em] transition-all shadow-xl shadow-emerald-500/20 active:scale-95"
+                                        >
+                                            Import {wsdlImport.selected.size} Operations
+                                        </button>
+                                    </div>
                                 </div>
                             )}
-                        </div>
-
-                        {/* Footer */}
-                        <div className="px-6 py-4 border-t border-slate-800 flex items-center justify-between">
-                            <button onClick={() => setWsdlImport({ open: false, url: '', loading: false, operations: [], endpoint: '', error: '', selected: new Set() })} className="text-xs text-slate-500 hover:text-slate-300 px-4 py-2 transition-colors">
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleImportSelectedWsdlOps}
-                                disabled={!wsdlImport.selected.size || wsdlImport.loading}
-                                className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white px-6 py-2 rounded-xl text-xs font-bold flex items-center space-x-2 transition-all shadow-lg shadow-amber-900/20"
-                            >
-                                <Plus className="w-3.5 h-3.5" />
-                                <span>Import {wsdlImport.selected.size} Operation{wsdlImport.selected.size !== 1 ? 's' : ''} to Catalog</span>
-                            </button>
                         </div>
                     </div>
                 </div>
@@ -912,7 +761,8 @@ export function ModuleApiDrawer({ api: initialApi, moduleId, project, onClose, o
         response_body: {},
         authentication: { type: 'None' },
         swaggerRef: "",
-        isAuthApi: false
+        isAuthApi: false,
+        apiType: "REST"
     });
     const [activeTab, setActiveTab] = useState('info');
     const [showMockGenerator, setShowMockGenerator] = useState(false);
@@ -924,20 +774,6 @@ export function ModuleApiDrawer({ api: initialApi, moduleId, project, onClose, o
         }
         onSave(localApi);
     };
-
-    // Keyboard shortcut: Ctrl+S to save, Esc to close
-    React.useEffect(() => {
-        const handler = (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-                e.preventDefault();
-                if (!localApi.name || !localApi.url) { toast.error("Name and URL are required"); return; }
-                onSave(localApi);
-            }
-            if (e.key === 'Escape') onClose?.();
-        };
-        window.addEventListener('keydown', handler);
-        return () => window.removeEventListener('keydown', handler);
-    }, [localApi, onClose, onSave]);
 
     const renderJsonEditor = (field, label) => {
         const val = localApi[field];
@@ -1015,7 +851,7 @@ export function ModuleApiDrawer({ api: initialApi, moduleId, project, onClose, o
 
                 <div className={`flex-1 overflow-y-auto ${activeTab === 'test' ? 'p-2' : 'p-8'} flex flex-col min-h-0 bg-slate-900/50`}>
                     {activeTab === 'info' && (
-                        <div className="space-y-6 animate-fade-in">
+                        <div className="space-y-6 animate-fade-in text-white">
                             <div className="grid grid-cols-4 gap-4">
                                 <div className="col-span-1">
                                     <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">Method</label>
@@ -1038,6 +874,33 @@ export function ModuleApiDrawer({ api: initialApi, moduleId, project, onClose, o
                                 </div>
                             </div>
 
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">API Type / Category</label>
+                                    <div className="flex bg-slate-950 border border-slate-800 rounded-xl p-1">
+                                        {['REST', 'SOAP', 'GRAPHQL'].map(t => (
+                                            <button
+                                                key={t}
+                                                onClick={() => setLocalApi({
+                                                    ...localApi,
+                                                    apiType: t,
+                                                    method: t === 'SOAP' ? 'POST' : localApi.method
+                                                })}
+                                                className={`flex-1 py-2 rounded-lg text-[10px] font-black transition-all ${localApi.apiType === t ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+                                            >
+                                                {t}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="flex items-end pb-1">
+                                    <div className={`flex items-center space-x-2 px-4 py-2 rounded-xl border ${localApi.apiType === 'SOAP' ? 'border-amber-500/20 bg-amber-500/5 text-amber-500' : localApi.apiType === 'GRAPHQL' ? 'border-pink-500/20 bg-pink-500/5 text-pink-500' : 'border-indigo-500/20 bg-indigo-500/5 text-indigo-500'} text-[10px] font-bold w-full`}>
+                                        <Activity className="w-3.5 h-3.5" />
+                                        <span>Pro Engine: {localApi.apiType === 'SOAP' ? 'SOAP/XML Handlers Active' : localApi.apiType === 'GRAPHQL' ? 'GQL Schema Inspector Active' : 'Restful JSON Handlers Active'}</span>
+                                    </div>
+                                </div>
+                            </div>
+
                             <div>
                                 <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">API Display Name</label>
                                 <input
@@ -1057,62 +920,19 @@ export function ModuleApiDrawer({ api: initialApi, moduleId, project, onClose, o
                                     placeholder="What does this API do?"
                                 />
                             </div>
-
-                            <div className="flex items-center justify-between pt-4 border-t border-slate-800">
-                                <div>
-                                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                                        <Key className="w-3.5 h-3.5 text-amber-400" />
-                                        Authentication API Tag
-                                    </div>
-                                    <p className="text-[10px] text-slate-500 mt-1">Tag this API as an authentication endpoint for easier identification.</p>
-                                </div>
-                                <button
-                                    onClick={() => setLocalApi({ ...localApi, isAuthApi: !localApi.isAuthApi })}
-                                    className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all flex items-center gap-2 border ${localApi.isAuthApi ? 'bg-amber-400/10 border-amber-400/30 text-amber-400' : 'bg-slate-950 border-slate-800 text-slate-500'}`}
-                                >
-                                    {localApi.isAuthApi ? 'Tagged as Auth API' : 'Tag as Auth API'}
-                                </button>
-                            </div>
-
-                            <div className="pt-6 border-t border-slate-800">
-                                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">Swagger Reference (OperationID)</label>
-                                <div className="flex items-center space-x-2 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3">
-                                    <Code className="w-4 h-4 text-slate-600" />
-                                    <input
-                                        value={localApi.swaggerRef}
-                                        onChange={e => setLocalApi({ ...localApi, swaggerRef: e.target.value })}
-                                        className="flex-1 bg-transparent text-xs text-indigo-400 font-mono outline-none"
-                                        placeholder="e.g. SIM_SWAP_ASYNC"
-                                    />
-                                </div>
-                            </div>
                         </div>
                     )}
 
                     {activeTab === 'headers' && renderJsonEditor('headers', 'HTTP Headers')}
                     {activeTab === 'request' && renderJsonEditor('request_body', 'Request Payload')}
-                    {activeTab === 'response' && (
-                        <div className="flex flex-col h-full gap-2">
-                            <div className="flex items-center justify-end">
-                                <button
-                                    onClick={() => setShowMockGenerator(true)}
-                                    className="flex items-center gap-1.5 text-[10px] font-bold text-violet-400 hover:text-violet-300 bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/20 px-3 py-1.5 rounded-lg transition-all"
-                                >
-                                    <Sparkles className="w-3 h-3" /> Generate Mock Response
-                                </button>
-                            </div>
-                            {renderJsonEditor('response_body', 'Sample Response')}
-                        </div>
-                    )}
+                    {activeTab === 'response' && renderJsonEditor('response_body', 'Sample Response')}
                     {activeTab === 'test' && (
                         <AdvancedApiTester
                             api={localApi}
                             project={project}
                             moduleId={moduleId}
                             selectedEnv={selectedEnv}
-                            onUpdateExamples={(sample) => {
-                                setLocalApi({ ...localApi, response_body: sample });
-                            }}
+                            onUpdateExamples={(sample) => setLocalApi({ ...localApi, response_body: sample })}
                         />
                     )}
                 </div>
@@ -1124,14 +944,6 @@ export function ModuleApiDrawer({ api: initialApi, moduleId, project, onClose, o
                         onClose={() => setShowMockGenerator(false)}
                     />
                 )}
-
-                <div className="h-12 border-t border-slate-800 px-8 flex items-center justify-between bg-slate-900 shrink-0">
-                    <span className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">RAPTR DXP CATALOG ENGINE</span>
-                    <div className="flex items-center space-x-2">
-                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                        <span className="text-[10px] text-slate-500 font-bold uppercase">{localApi.method} VALIDATED</span>
-                    </div>
-                </div>
             </div>
         </div>
     );

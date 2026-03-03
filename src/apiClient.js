@@ -16,7 +16,7 @@
  *
  *  For WSDL / external proxy calls:
  *    import { apiClient } from './apiClient';
- *    const data = await apiClient.get('/proxy/wsdl?url=' + encodeURIComponent(wsdlUrl));
+ *    const data = await apiClient.fetchWsdl(wsdlUrl);
  * ============================================================
  */
 
@@ -79,21 +79,29 @@ export const clearToken = () => {
  * @param {string}  path      - API path, e.g. '/projects' or '/proxy/wsdl?url=...'
  * @param {object}  options   - Standard fetch options (method, body, headers, ...)
  * @param {object}  extra     - Extra control flags:
- *                                rawText:  boolean  – return raw text instead of JSON
- *                                skipAuth: boolean  – don't inject Authorization header (e.g. login)
+ *                                rawText:   boolean  – return raw text instead of JSON
+ *                                skipAuth:  boolean  – don't inject Authorization header (e.g. login)
+ *                                headers:   object   – additional headers merged AFTER defaults
+ *                                skipContentType: boolean – don't set Content-Type (e.g. FormData, XML)
  * @returns {Promise<any>}    - Parsed JSON (or text if rawText=true)
  * @throws  {Error}           - Throws on network failure or non-OK HTTP status
  */
 export const apiFetch = async (path, options = {}, extra = {}) => {
-    const { rawText = false, skipAuth = false } = extra;
+    const {
+        rawText = false,
+        skipAuth = false,
+        skipContentType = false,
+        headers: extraHeaders = {},    // ← FIX: extra.headers now properly merged
+    } = extra;
 
     // Build URL
     const url = path.startsWith('http') ? path : `${BASE_URL}${path}`;
 
-    // Merge headers
+    // Merge headers: defaults → options.headers → extra.headers (highest priority)
     const headers = {
-        'Content-Type': 'application/json',
+        ...(skipContentType ? {} : { 'Content-Type': 'application/json' }),
         ...(options.headers || {}),
+        ...extraHeaders,               // ← FIX: extra headers now applied correctly
     };
 
     // Inject auth token unless caller opts out (e.g. login endpoint)
@@ -149,12 +157,8 @@ export const apiClient = {
     postForm: (path, formData, extra) =>
         apiFetch(
             path,
-            {
-                method: 'POST',
-                body: formData,
-                headers: {},          // let browser set multipart boundary
-            },
-            extra
+            { method: 'POST', body: formData, headers: {} },
+            { ...extra, skipContentType: true }  // let browser set multipart boundary
         ),
 
     /**
