@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     Plus, Trash2, Lock, CheckCircle, Laptop, Save, X,
     FileText, Box, Database, Share2, MessageSquare, GitBranch, Activity
@@ -8,6 +8,12 @@ import DesignMapper from '../DesignMapper.jsx';
 import { SwaggerDownstreamForm } from './SwaggerDownstreamForm';
 import { WsdlDownstreamForm } from './WsdlDownstreamForm';
 import { AdvancedApiTester } from './AdvancedApiTester';
+import ReactMarkdown from 'react-markdown';
+
+// Lazy markdown preview component for remarks
+function RemarksPreview({ content }) {
+    return <ReactMarkdown>{content}</ReactMarkdown>;
+}
 
 export function SubApiDrawer({ api, project, onClose, onSave, services = [], allApis = [], modules = [], selectedEnv }) {
     const projectSettings = project.settings || {};
@@ -50,6 +56,19 @@ export function SubApiDrawer({ api, project, onClose, onSave, services = [], all
 
         onSave({ ...localApi, request: finalBody, bodyFormat });
     };
+
+    // Keyboard shortcuts: Ctrl+S to save, Esc to close
+    useEffect(() => {
+        const handler = (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                handleSaveValidated();
+            }
+            if (e.key === 'Escape') onClose?.();
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [localApi, localRequestBody, bodyFormat, requestError, onClose]);
 
     return (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-sm transition-opacity" onClick={onClose}>
@@ -325,13 +344,24 @@ export function SubApiDrawer({ api, project, onClose, onSave, services = [], all
                             </div>
 
                             <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Remarks & Notes</label>
+                                <div className="flex items-center justify-between mb-2">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase">Remarks & Notes</label>
+                                    <span className="text-[9px] text-slate-600 font-medium">Supports **Markdown** formatting</span>
+                                </div>
                                 <textarea
                                     value={localApi.remarks || ""}
                                     onChange={e => setLocalApi({ ...localApi, remarks: e.target.value })}
                                     className="w-full bg-slate-900 border border-slate-700 rounded-lg p-4 text-sm text-slate-300 h-32 resize-none outline-none focus:border-indigo-500"
-                                    placeholder="Add implementation notes, caveats, or developer remarks..."
+                                    placeholder="Add implementation notes, caveats, or developer remarks... (Supports **bold**, _italic_, `code`, - lists)"
                                 />
+                                {localApi.remarks && (
+                                    <div className="mt-2 border border-slate-700 rounded-lg p-4 bg-slate-950/50">
+                                        <p className="text-[9px] font-bold text-slate-600 uppercase tracking-wider mb-2">Preview</p>
+                                        <div className="prose prose-sm prose-invert max-w-none text-slate-300">
+                                            <RemarksPreview content={localApi.remarks} />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}

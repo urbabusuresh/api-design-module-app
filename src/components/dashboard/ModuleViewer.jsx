@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
     BookOpen, Globe, Activity, FileJson, Plus, Trash2, Key, Box, Save, X,
     FileText, Shield, CheckCircle, Code, Layers as LayersIcon, Copy, Search, AlertCircle,
-    Heart, Play, FileJson2, Zap
+    Heart, Play, FileJson2, Zap, GitCompare, Sparkles, GitBranch, List, CheckSquare
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SwaggerUI from "swagger-ui-react";
@@ -12,6 +12,10 @@ import { AdvancedApiTester } from './AdvancedApiTester';
 import { ApiHealthMonitor } from './ApiHealthMonitor';
 import { CollectionRunner } from './CollectionRunner';
 import { PostmanImporter } from './PostmanImporter';
+import { ResponseDiffTool } from './ResponseDiffTool';
+import { ApiStatusWorkflow } from './ApiStatusWorkflow';
+import { MockResponseGenerator } from './MockResponseGenerator';
+import ReactMarkdown from 'react-markdown';
 
 export function ModuleViewer({ module, environments = [], selectedEnv: globalSelectedEnv, onUpdate, project }) {
     const [isEditing, setIsEditing] = useState(false);
@@ -248,6 +252,11 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
     const [showHealthMonitor, setShowHealthMonitor] = useState(false);
     const [showCollectionRunner, setShowCollectionRunner] = useState(false);
     const [showPostmanImporter, setShowPostmanImporter] = useState(false);
+    const [showResponseDiff, setShowResponseDiff] = useState(false);
+    const [showApiStatus, setShowApiStatus] = useState(null); // api item
+    const [bulkMode, setBulkMode] = useState(false);
+    const [bulkSelected, setBulkSelected] = useState(new Set());
+    const [bulkStatus, setBulkStatus] = useState('');
 
     useEffect(() => {
         loadApis();
@@ -433,6 +442,45 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
         });
     };
 
+    const handleBulkStatusUpdate = async () => {
+        if (!bulkSelected.size || !bulkStatus) { toast.error('Select APIs and a status'); return; }
+        const toastId = toast.loading(`Updating ${bulkSelected.size} APIs to ${bulkStatus}...`);
+        try {
+            await Promise.all([...bulkSelected].map(id => api.updateModuleApi(id, { status: bulkStatus })));
+            toast.success(`Updated ${bulkSelected.size} APIs to ${bulkStatus}`, { id: toastId });
+            setBulkSelected(new Set());
+            setBulkMode(false);
+            setBulkStatus('');
+            loadApis();
+        } catch (e) {
+            toast.error('Bulk update failed: ' + e.message, { id: toastId });
+        }
+    };
+
+    const handleBulkDelete = async () => {
+        if (!bulkSelected.size) return;
+        if (!confirm(`Delete ${bulkSelected.size} selected APIs?`)) return;
+        const toastId = toast.loading(`Deleting ${bulkSelected.size} APIs...`);
+        try {
+            await Promise.all([...bulkSelected].map(id => api.deleteModuleApi(id)));
+            toast.success(`Deleted ${bulkSelected.size} APIs`, { id: toastId });
+            setBulkSelected(new Set());
+            setBulkMode(false);
+            loadApis();
+        } catch (e) {
+            toast.error('Bulk delete failed: ' + e.message, { id: toastId });
+        }
+    };
+
+    const handleApiStatusTransition = async (apiItem, newStatus) => {
+        try {
+            await api.updateModuleApi(apiItem.id, { status: newStatus });
+            loadApis();
+        } catch (e) {
+            toast.error('Status update failed: ' + e.message);
+        }
+    };
+
     return (
         <div className="flex-1 flex flex-col min-h-0 bg-slate-50">
             <div className="px-6 py-4 flex justify-between items-center bg-white border-b border-slate-200 shrink-0">
@@ -487,6 +535,20 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
                         <Play className="w-3.5 h-3.5" /> <span>Run</span>
                     </button>
                     <button
+                        onClick={() => setShowResponseDiff(true)}
+                        title="Compare responses across environments"
+                        className="flex items-center space-x-2 px-3 py-1.5 border border-cyan-500/30 text-cyan-600 rounded-lg text-[10px] font-bold hover:bg-cyan-50 transition-all"
+                    >
+                        <GitCompare className="w-3.5 h-3.5" /> <span>Diff</span>
+                    </button>
+                    <button
+                        onClick={() => { setBulkMode(m => !m); setBulkSelected(new Set()); }}
+                        title="Bulk-select and edit multiple APIs"
+                        className={`flex items-center space-x-2 px-3 py-1.5 border rounded-lg text-[10px] font-bold transition-all ${bulkMode ? 'border-amber-500/60 bg-amber-500/10 text-amber-600' : 'border-amber-500/30 text-amber-600 hover:bg-amber-50'}`}
+                    >
+                        <List className="w-3.5 h-3.5" /> <span>Bulk</span>
+                    </button>
+                    <button
                         onClick={() => setIsCreating(true)}
                         className="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold flex items-center space-x-2 transition-all shadow-md shadow-indigo-500/10"
                     >
@@ -494,6 +556,40 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
                     </button>
                 </div>
             </div>
+
+            {/* Bulk Edit Toolbar */}
+            {bulkMode && (
+                <div className="px-6 py-2 bg-amber-500/5 border-b border-amber-500/20 flex items-center gap-3">
+                    <span className="text-[10px] font-bold text-amber-500">{bulkSelected.size} selected</span>
+                    <button onClick={() => setBulkSelected(new Set(apis.map(a => a.id)))} className="text-[9px] text-slate-500 hover:text-slate-300 font-bold">Select All</button>
+                    <button onClick={() => setBulkSelected(new Set())} className="text-[9px] text-slate-500 hover:text-slate-300 font-bold">Clear</button>
+                    <div className="flex-1" />
+                    <label className="text-[9px] font-bold text-slate-500 uppercase">Set Status:</label>
+                    <select
+                        value={bulkStatus}
+                        onChange={e => setBulkStatus(e.target.value)}
+                        className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-[10px] text-white outline-none"
+                    >
+                        <option value="">-- Choose --</option>
+                        {['Draft', 'Review', 'Active', 'Deprecated', 'Retired'].map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    <button
+                        onClick={handleBulkStatusUpdate}
+                        disabled={!bulkSelected.size || !bulkStatus}
+                        className="bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white px-3 py-1 rounded text-[10px] font-bold transition-colors"
+                    >
+                        Apply Status
+                    </button>
+                    <button
+                        onClick={handleBulkDelete}
+                        disabled={!bulkSelected.size}
+                        className="bg-red-600 hover:bg-red-500 disabled:opacity-40 text-white px-3 py-1 rounded text-[10px] font-bold transition-colors"
+                    >
+                        Delete Selected
+                    </button>
+                    <button onClick={() => { setBulkMode(false); setBulkSelected(new Set()); }} className="text-[9px] text-slate-500 hover:text-slate-300 font-bold">Cancel</button>
+                </div>
+            )}
 
             <div className="flex-1 overflow-y-auto p-6">
                 {loading ? (
@@ -514,24 +610,58 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
                         ).map(apiItem => (
                             <div
                                 key={apiItem.id}
-                                onClick={() => setSelectedApi({
-                                    id: apiItem.id,
-                                    name: apiItem.api_name,
-                                    url: apiItem.url,
-                                    method: apiItem.http_method,
-                                    description: apiItem.description,
-                                    headers: apiItem.headers,
-                                    request_body: apiItem.request_body,
-                                    response_body: apiItem.response_body,
-                                    authentication: apiItem.authentication,
-                                    swaggerRef: apiItem.swagger_reference,
-                                    isAuthApi: apiItem.is_auth_api
-                                })}
-                                className="bg-white border border-slate-200 rounded-2xl p-4 hover:shadow-lg transition-all group cursor-pointer"
+                                onClick={() => {
+                                    if (bulkMode) {
+                                        setBulkSelected(prev => {
+                                            const n = new Set(prev);
+                                            n.has(apiItem.id) ? n.delete(apiItem.id) : n.add(apiItem.id);
+                                            return n;
+                                        });
+                                        return;
+                                    }
+                                    setSelectedApi({
+                                        id: apiItem.id,
+                                        name: apiItem.api_name,
+                                        url: apiItem.url,
+                                        method: apiItem.http_method,
+                                        description: apiItem.description,
+                                        headers: apiItem.headers,
+                                        request_body: apiItem.request_body,
+                                        response_body: apiItem.response_body,
+                                        authentication: apiItem.authentication,
+                                        swaggerRef: apiItem.swagger_reference,
+                                        isAuthApi: apiItem.is_auth_api
+                                    });
+                                }}
+                                className={`bg-white border rounded-2xl p-4 hover:shadow-lg transition-all group cursor-pointer ${bulkSelected.has(apiItem.id) ? 'border-amber-400 ring-1 ring-amber-400/40' : 'border-slate-200'}`}
                             >
                                 <div className="flex justify-between items-start mb-2">
-                                    <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${apiItem.http_method === 'GET' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-blue-500/10 text-blue-600'}`}>{apiItem.http_method}</span>
+                                    <div className="flex items-center gap-2">
+                                        {bulkMode && (
+                                            <input
+                                                type="checkbox"
+                                                checked={bulkSelected.has(apiItem.id)}
+                                                onChange={(e) => {
+                                                    e.stopPropagation();
+                                                    setBulkSelected(prev => {
+                                                        const n = new Set(prev);
+                                                        n.has(apiItem.id) ? n.delete(apiItem.id) : n.add(apiItem.id);
+                                                        return n;
+                                                    });
+                                                }}
+                                                className="w-3.5 h-3.5 accent-amber-500 cursor-pointer"
+                                            />
+                                        )}
+                                        <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${apiItem.http_method === 'GET' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-blue-500/10 text-blue-600'}`}>{apiItem.http_method}</span>
+                                    </div>
                                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); setShowApiStatus(apiItem); }}
+                                            className="p-1 text-slate-400 hover:text-indigo-500 transition-all"
+                                            title="Change Status Workflow"
+                                        >
+                                            <GitBranch className="w-3.5 h-3.5" />
+                                        </button>
                                         <button
                                             onClick={(e) => { e.stopPropagation(); handleDuplicate(apiItem); }}
                                             className="p-1 text-slate-400 hover:text-indigo-500 transition-all"
@@ -550,6 +680,11 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
                                 </div>
                                 <h4 className="text-sm font-bold text-slate-800 mb-1 truncate">{apiItem.api_name}</h4>
                                 <p className="text-xs text-slate-500 font-mono truncate mb-3">{apiItem.url}</p>
+                                {apiItem.description && (
+                                    <div className="text-[10px] text-slate-500 mb-2 line-clamp-2 prose prose-xs max-w-none">
+                                        <ReactMarkdown>{apiItem.description}</ReactMarkdown>
+                                    </div>
+                                )}
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-2">
                                         <div className="flex items-center text-[10px] text-indigo-500 font-bold uppercase tracking-tighter">
@@ -623,6 +758,24 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
                     module={module}
                     onClose={() => setShowPostmanImporter(false)}
                     onImported={() => { setShowPostmanImporter(false); loadApis(); }}
+                />
+            )}
+
+            {showResponseDiff && (
+                <ResponseDiffTool
+                    apis={apis}
+                    environments={project?.settings?.environments || ['DEV', 'SIT', 'UAT', 'PROD']}
+                    project={project}
+                    onClose={() => setShowResponseDiff(false)}
+                />
+            )}
+
+            {showApiStatus && (
+                <ApiStatusWorkflow
+                    currentStatus={showApiStatus.status || 'Draft'}
+                    apiName={showApiStatus.api_name}
+                    onTransition={(newStatus) => handleApiStatusTransition(showApiStatus, newStatus)}
+                    onClose={() => setShowApiStatus(null)}
                 />
             )}
 
@@ -762,6 +915,7 @@ export function ModuleApiDrawer({ api: initialApi, moduleId, project, onClose, o
         isAuthApi: false
     });
     const [activeTab, setActiveTab] = useState('info');
+    const [showMockGenerator, setShowMockGenerator] = useState(false);
 
     const handleSave = () => {
         if (!localApi.name || !localApi.url) {
@@ -770,6 +924,20 @@ export function ModuleApiDrawer({ api: initialApi, moduleId, project, onClose, o
         }
         onSave(localApi);
     };
+
+    // Keyboard shortcut: Ctrl+S to save, Esc to close
+    React.useEffect(() => {
+        const handler = (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                if (!localApi.name || !localApi.url) { toast.error("Name and URL are required"); return; }
+                onSave(localApi);
+            }
+            if (e.key === 'Escape') onClose?.();
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [localApi, onClose, onSave]);
 
     const renderJsonEditor = (field, label) => {
         const val = localApi[field];
@@ -923,7 +1091,19 @@ export function ModuleApiDrawer({ api: initialApi, moduleId, project, onClose, o
 
                     {activeTab === 'headers' && renderJsonEditor('headers', 'HTTP Headers')}
                     {activeTab === 'request' && renderJsonEditor('request_body', 'Request Payload')}
-                    {activeTab === 'response' && renderJsonEditor('response_body', 'Sample Response')}
+                    {activeTab === 'response' && (
+                        <div className="flex flex-col h-full gap-2">
+                            <div className="flex items-center justify-end">
+                                <button
+                                    onClick={() => setShowMockGenerator(true)}
+                                    className="flex items-center gap-1.5 text-[10px] font-bold text-violet-400 hover:text-violet-300 bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/20 px-3 py-1.5 rounded-lg transition-all"
+                                >
+                                    <Sparkles className="w-3 h-3" /> Generate Mock Response
+                                </button>
+                            </div>
+                            {renderJsonEditor('response_body', 'Sample Response')}
+                        </div>
+                    )}
                     {activeTab === 'test' && (
                         <AdvancedApiTester
                             api={localApi}
@@ -936,6 +1116,14 @@ export function ModuleApiDrawer({ api: initialApi, moduleId, project, onClose, o
                         />
                     )}
                 </div>
+
+                {showMockGenerator && (
+                    <MockResponseGenerator
+                        responseSchema={localApi.response_body}
+                        onAccept={(mock) => setLocalApi({ ...localApi, response_body: mock })}
+                        onClose={() => setShowMockGenerator(false)}
+                    />
+                )}
 
                 <div className="h-12 border-t border-slate-800 px-8 flex items-center justify-between bg-slate-900 shrink-0">
                     <span className="text-[10px] text-slate-600 font-bold uppercase tracking-widest">RAPTR DXP CATALOG ENGINE</span>
