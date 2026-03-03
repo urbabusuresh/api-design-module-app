@@ -68,7 +68,7 @@ export function SubApiDrawer({ api, project, onClose, onSave, services = [], all
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
-    }, [localApi, localRequestBody, bodyFormat, requestError]);
+    }, [localApi, localRequestBody, bodyFormat, requestError, onClose]);
 
     return (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-sm transition-opacity" onClick={onClose}>

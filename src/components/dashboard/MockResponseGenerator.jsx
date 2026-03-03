@@ -2,6 +2,13 @@ import React, { useState } from 'react';
 import { Sparkles, X, Copy, Check, RefreshCcw } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+}
+
 /**
  * Generates a plausible mock value for a given JSON Schema type/format.
  */
@@ -45,10 +52,7 @@ function mockFromSchema(schema, depth = 0) {
     if (fmt === 'time') return new Date().toISOString().slice(11, 19);
     if (fmt === 'email') return 'user@example.com';
     if (fmt === 'uri' || fmt === 'url') return 'https://api.example.com/resource/1';
-    if (fmt === 'uuid') return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-        const r = Math.random() * 16 | 0;
-        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-    });
+    if (fmt === 'uuid') return generateUUID();
     if (fmt === 'password') return '••••••••';
 
     // Use property name hints
@@ -92,10 +96,7 @@ function deepRandomize(obj, depth = 0) {
         if (obj.includes('@')) return 'user@example.com';
         if (/^\d{4}-\d{2}-\d{2}/.test(obj)) return new Date().toISOString().slice(0, 10);
         if (/^https?:\/\//.test(obj)) return 'https://api.example.com/resource/1';
-        if (/^[0-9a-f-]{36}$/i.test(obj)) return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-            const r = Math.random() * 16 | 0;
-            return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-        });
+        if (/^[0-9a-f-]{36}$/i.test(obj)) return generateUUID();
         return obj; // keep string values as-is (they're descriptive)
     }
     return obj;

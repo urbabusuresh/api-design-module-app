@@ -641,9 +641,15 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
                                             <input
                                                 type="checkbox"
                                                 checked={bulkSelected.has(apiItem.id)}
-                                                onChange={() => {}}
+                                                onChange={(e) => {
+                                                    e.stopPropagation();
+                                                    setBulkSelected(prev => {
+                                                        const n = new Set(prev);
+                                                        n.has(apiItem.id) ? n.delete(apiItem.id) : n.add(apiItem.id);
+                                                        return n;
+                                                    });
+                                                }}
                                                 className="w-3.5 h-3.5 accent-amber-500 cursor-pointer"
-                                                onClick={e => e.stopPropagation()}
                                             />
                                         )}
                                         <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold ${apiItem.http_method === 'GET' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-blue-500/10 text-blue-600'}`}>{apiItem.http_method}</span>
@@ -924,13 +930,14 @@ export function ModuleApiDrawer({ api: initialApi, moduleId, project, onClose, o
         const handler = (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 's') {
                 e.preventDefault();
-                handleSave();
+                if (!localApi.name || !localApi.url) { toast.error("Name and URL are required"); return; }
+                onSave(localApi);
             }
             if (e.key === 'Escape') onClose?.();
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
-    }, [localApi]);
+    }, [localApi, onClose, onSave]);
 
     const renderJsonEditor = (field, label) => {
         const val = localApi[field];
