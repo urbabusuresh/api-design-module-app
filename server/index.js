@@ -1701,16 +1701,35 @@ app.get('/api/projects/:id/test-logs', async (req, res) => {
 
 // WSDL Proxy & Parser - avoids CORS by fetching WSDL server-side
 app.get('/api/proxy/wsdl', async (req, res) => {
-    const { url } = req.query;
+    const { url, token } = req.query;
     if (!url) return res.status(400).json({ error: 'url query param required' });
 
+    // Build request headers - support token-protected WSDL endpoints
+    const fetchHeaders = {
+        'Accept': 'text/xml, application/xml, application/wsdl+xml, */*',
+    };
+    // Allow passing an Authorization token for secured WSDL URLs
+    const authHeader = req.headers['authorization'] || (token ? `Bearer ${token}` : null);
+    if (authHeader) fetchHeaders['Authorization'] = authHeader;
+
+    // For HTTPS WSDLs with self-signed certs (common in enterprise/internal services)
+    const fetchOptions = { headers: fetchHeaders, signal: AbortSignal.timeout(10000) };
+    if (url.startsWith('https://')) {
+        const https = require('https');
+        fetchOptions.agent = new https.Agent({ rejectUnauthorized: false });
+    }
+
     try {
-        const response = await fetch(url, {
-            headers: { 'Accept': 'text/xml, application/xml, application/wsdl+xml, */*' }
-        });
-        if (!response.ok) throw new Error(`Upstream WSDL fetch failed: ${response.status} ${response.statusText}`);
+        const response = await fetch(url, fetchOptions);
+        if (!response.ok) {
+            const errText = await response.text().catch(() => '');
+            throw new Error(`Upstream WSDL fetch failed: ${response.status} ${response.statusText}${errText ? ` — ${errText.substring(0, 200)}` : ''}`);
+        }
 
         const xmlText = await response.text();
+        if (!xmlText || xmlText.trim().length === 0) {
+            throw new Error('WSDL response is empty. Check the URL is accessible from the server.');
+        }
 
         // Simple WSDL Parser using regex (no XML library needed on server)
         const opRegex = /<(?:wsdl:)?operation\s+name="([^"]+)"/gi;

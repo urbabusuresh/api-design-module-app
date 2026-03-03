@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Activity, Search, Globe, Code, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { apiClient } from '../../apiClient';
 
 export function WsdlDownstreamForm({ onCancel, onAdd }) {
     const [wsdlUrl, setWsdlUrl] = useState("");
@@ -21,13 +22,8 @@ export function WsdlDownstreamForm({ onCancel, onAdd }) {
         setEndpoint("");
 
         try {
-            // Use our server-side proxy to avoid CORS and parse the WSDL
-            const res = await fetch(`/api/proxy/wsdl?url=${encodeURIComponent(wsdlUrl.trim())}`);
-            const data = await res.json();
-
-            if (!res.ok) {
-                throw new Error(data.error || `Server error: ${res.status}`);
-            }
+            // apiClient.fetchWsdl() auto-injects the auth token and uses the correct backend URL
+            const data = await apiClient.fetchWsdl(wsdlUrl.trim());
 
             if (!data.operations || data.operations.length === 0) {
                 setError("No operations found in WSDL. Ensure the URL points to a valid WSDL document.");
@@ -44,6 +40,7 @@ export function WsdlDownstreamForm({ onCancel, onAdd }) {
             setIsParsing(false);
         }
     };
+
 
     const handleSelectOperation = (op) => {
         onAdd({

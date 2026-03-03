@@ -1,420 +1,201 @@
-const API_URL = import.meta.env.VITE_API_URL ||
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-        ? 'http://localhost:3001/api'
-        : '/api');
+/**
+ * api.js
+ * ------
+ * All backend API calls go through apiClient (src/apiClient.js).
+ * The base URL and auth-token injection are handled there — one place to change.
+ *
+ * To change the backend URL: update VITE_API_URL in .env
+ * To change auth token storage: update getToken/saveToken in apiClient.js
+ */
+import { apiClient, saveToken, clearToken } from './apiClient';
 
 export const api = {
-    getProjects: async () => {
-        const res = await fetch(`${API_URL}/projects`);
-        return res.json();
-    },
-    getProject: async (id) => {
-        const res = await fetch(`${API_URL}/projects/${id}`);
-        if (!res.ok) throw new Error('Failed to load project');
-        return res.json();
-    },
-    createProject: async (data) => {
-        const res = await fetch(`${API_URL}/projects`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-        return res.json();
-    },
-    deleteProject: async (id) => {
-        const res = await fetch(`${API_URL}/projects/${id}`, {
-            method: 'DELETE'
-        });
-        return res.json();
-    },
-    updateProjectSettings: async (id, settings) => {
-        const res = await fetch(`${API_URL}/projects/${id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ settings })
-        });
-        return res.json();
-    },
-    updateProjectVariables: async (id, variables) => {
-        const res = await fetch(`${API_URL}/projects/${id}/variables`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ variables })
-        });
-        return res.json();
-    },
-    createSystem: async (projectId, name) => {
-        const res = await fetch(`${API_URL}/systems`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ projectId, name })
-        });
-        return res.json();
-    },
-    createRootApi: async (data) => {
-        const res = await fetch(`${API_URL}/root-apis`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-        return res.json();
-    },
-    saveSubApi: async (data) => {
-        const res = await fetch(`${API_URL}/sub-apis`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-        return res.json();
-    },
+
+    // ── PROJECTS ──────────────────────────────────────────────────────────
+    getProjects: () => apiClient.get('/projects'),
+
+    getProject: (id) => apiClient.get(`/projects/${id}`),
+
+    createProject: (data) => apiClient.post('/projects', data),
+
+    deleteProject: (id) => apiClient.del(`/projects/${id}`),
+
+    updateProjectSettings: (id, settings) =>
+        apiClient.put(`/projects/${id}`, { settings }),
+
+    updateProjectVariables: (id, variables) =>
+        apiClient.put(`/projects/${id}/variables`, { variables }),
+
+    // ── SYSTEMS ───────────────────────────────────────────────────────────
+    createSystem: (projectId, name) =>
+        apiClient.post('/systems', { projectId, name }),
+
+    updateSystem: (id, name) =>
+        apiClient.put(`/systems/${id}`, { name }),
+
+    deleteSystem: (id) => apiClient.del(`/systems/${id}`),
+
+    // ── ROOT APIS (Services) ──────────────────────────────────────────────
+    createRootApi: (data) => apiClient.post('/root-apis', data),
+
+    // ── SUB APIS ──────────────────────────────────────────────────────────
+    saveSubApi: (data) => apiClient.post('/sub-apis', data),
+
+    saveDesignMetadata: (apiId, designMetadata) =>
+        apiClient.put(`/sub-apis/${apiId}/design-metadata`, { designMetadata }),
+
+    // ── AUTH / USERS ──────────────────────────────────────────────────────
+    /**
+     * Login – intentionally skips auth header (we don't have a token yet).
+     * Saves the returned token automatically.
+     */
     login: async (username, password) => {
-        const res = await fetch(`${API_URL}/login`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password })
-        });
-        if (!res.ok) throw new Error('Invalid credentials');
-        return res.json();
+        const data = await apiClient.post(
+            '/login',
+            { username, password },
+            { skipAuth: true }   // no token yet
+        );
+        if (data.token) saveToken(data.token);
+        return data;
     },
-    createUser: async (data) => {
-        const res = await fetch(`${API_URL}/users`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-        if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.error || 'Failed to create user');
-        }
-        return res.json();
-    },
-    getUsers: async () => {
-        const res = await fetch(`${API_URL}/users`);
-        return res.json();
-    },
-    updatePassword: async (username, newPassword) => {
-        const res = await fetch(`${API_URL}/users/${username}/password`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ newPassword })
-        });
-        if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.error || 'Failed to update password');
-        }
-        return res.json();
-    },
-    updateUser: async (id, data) => {
-        const res = await fetch(`${API_URL}/users/${id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-        if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.error || 'Failed to update user');
-        }
-        return res.json();
-    },
-    // --- MODULES ---
-    createModule: async (data) => {
-        const res = await fetch(`${API_URL}/modules`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-        return res.json();
-    },
-    updateModule: async (id, data) => {
-        const res = await fetch(`${API_URL}/modules/${id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-        return res.json();
-    },
-    deleteModule: async (id) => {
-        const res = await fetch(`${API_URL}/modules/${id}`, {
-            method: 'DELETE'
-        });
-        return res.json();
-    },
-    updateSystem: async (id, name) => {
-        const res = await fetch(`${API_URL}/systems/${id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name })
-        });
-        return res.json();
-    },
-    deleteSystem: async (id) => {
-        const res = await fetch(`${API_URL}/systems/${id}`, {
-            method: 'DELETE'
-        });
-        return res.json();
-    },
-    getModuleApis: async (moduleId) => {
-        const res = await fetch(`${API_URL}/modules/${moduleId}/apis`);
-        return res.json();
-    },
-    addModuleApis: async (moduleId, apis) => {
-        const res = await fetch(`${API_URL}/modules/${moduleId}/apis`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(apis)
-        });
-        return res.json();
-    },
-    updateModuleApi: async (id, data) => {
-        const res = await fetch(`${API_URL}/modules/apis/${id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-        return res.json();
-    },
-    deleteModuleApi: async (id) => {
-        const res = await fetch(`${API_URL}/modules/apis/${id}`, {
-            method: 'DELETE'
-        });
-        return res.json();
-    },
-    testEndpoint: async (data, projectId) => {
-        const res = await fetch(`${API_URL}/test-endpoint`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Project-Id': projectId
-            },
-            body: JSON.stringify(data)
-        });
-        return res.json();
-    },
-    getAuthProfiles: async (projectId) => {
-        const res = await fetch(`${API_URL}/projects/${projectId}/auth-profiles`);
-        return res.json();
-    },
-    createAuthProfile: async (projectId, data) => {
-        const res = await fetch(`${API_URL}/projects/${projectId}/auth-profiles`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-        return res.json();
-    },
-    deleteAuthProfile: async (id) => {
-        const res = await fetch(`${API_URL}/auth-profiles/${id}`, {
-            method: 'DELETE'
-        });
-        return res.json();
-    },
-    updateAuthProfile: async (id, data) => {
-        const res = await fetch(`${API_URL}/auth-profiles/${id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-        return res.json();
-    },
-    getTestLogs: async (projectId, params = {}) => {
+
+    logout: () => clearToken(),
+
+    createUser: (data) => apiClient.post('/users', data),
+
+    getUsers: () => apiClient.get('/users'),
+
+    updatePassword: (username, newPassword) =>
+        apiClient.put(`/users/${username}/password`, { newPassword }),
+
+    updateUser: (id, data) => apiClient.put(`/users/${id}`, data),
+
+    // ── MODULES ───────────────────────────────────────────────────────────
+    createModule: (data) => apiClient.post('/modules', data),
+
+    updateModule: (id, data) => apiClient.put(`/modules/${id}`, data),
+
+    deleteModule: (id) => apiClient.del(`/modules/${id}`),
+
+    getModuleApis: (moduleId) => apiClient.get(`/modules/${moduleId}/apis`),
+
+    addModuleApis: (moduleId, apis) =>
+        apiClient.post(`/modules/${moduleId}/apis`, apis),
+
+    updateModuleApi: (id, data) => apiClient.put(`/modules/apis/${id}`, data),
+
+    deleteModuleApi: (id) => apiClient.del(`/modules/apis/${id}`),
+
+    // ── TEST ENDPOINT ─────────────────────────────────────────────────────
+    testEndpoint: (data, projectId) =>
+        apiClient.post('/test-endpoint', data, {
+            // Merge extra header without losing token
+            headers: { 'X-Project-Id': projectId }
+        }),
+
+    // ── AUTH PROFILES ─────────────────────────────────────────────────────
+    getAuthProfiles: (projectId) =>
+        apiClient.get(`/projects/${projectId}/auth-profiles`),
+
+    createAuthProfile: (projectId, data) =>
+        apiClient.post(`/projects/${projectId}/auth-profiles`, data),
+
+    deleteAuthProfile: (id) => apiClient.del(`/auth-profiles/${id}`),
+
+    updateAuthProfile: (id, data) => apiClient.put(`/auth-profiles/${id}`, data),
+
+    // ── TEST LOGS ─────────────────────────────────────────────────────────
+    getTestLogs: (projectId, params = {}) => {
         const query = new URLSearchParams(params).toString();
-        const res = await fetch(`${API_URL}/projects/${projectId}/test-logs${query ? `?${query}` : ''}`);
-        return res.json();
+        return apiClient.get(`/projects/${projectId}/test-logs${query ? `?${query}` : ''}`);
     },
-    publishToWso2: async (apiId) => {
-        const res = await fetch(`${API_URL}/wso2/publish`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ apiId })
-        });
-        return res.json();
-    },
-    importWso2Project: async () => {
-        const res = await fetch(`${API_URL}/wso2/import`, { method: 'POST' });
-        return res.json();
-    },
-    createWso2Project: async (data) => {
-        const res = await fetch(`${API_URL}/wso2/project`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-        return res.json();
-    },
-    getWso2ProjectApis: async (projectId) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/apis`);
-        return res.json();
-    },
-    getWso2ApiSwagger: async (projectId, wso2ApiId) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/apis/${wso2ApiId}/swagger`);
-        if (!res.ok) throw new Error("Failed to fetch Swagger");
-        return res.json();
-    },
-    getWso2ApiLifecycle: async (projectId, wso2ApiId) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/apis/${wso2ApiId}/lifecycle`);
-        if (!res.ok) throw new Error("Failed to fetch lifecycle");
-        return res.json();
-    },
-    changeWso2ApiLifecycle: async (projectId, wso2ApiId, action) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/apis/${wso2ApiId}/lifecycle`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action })
-        });
-        if (!res.ok) throw new Error("Failed to change lifecycle");
-        return res.json();
-    },
-    getWso2ApiSubscriptions: async (projectId, wso2ApiId) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/apis/${wso2ApiId}/subscriptions`);
-        if (!res.ok) throw new Error("Failed to fetch subscriptions");
-        return res.json();
-    },
-    getWso2SubscriptionPolicies: async (projectId) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/subscription-policies`);
-        if (!res.ok) throw new Error("Failed to fetch policies");
-        return res.json();
-    },
-    // Applications
-    getWso2Applications: async (projectId) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/applications`);
-        if (!res.ok) throw new Error("Failed to fetch applications");
-        return res.json();
-    },
-    createWso2Application: async (projectId, data) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/applications`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-        if (!res.ok) throw new Error("Failed to create application");
-        return res.json();
-    },
-    generateWso2ApplicationKeys: async (projectId, appId, keyType) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/applications/${appId}/keys`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ keyType })
-        });
-        if (!res.ok) throw new Error("Failed to generate keys");
-        return res.json();
-    },
-    subscribeToWso2Api: async (projectId, data) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/subscriptions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-        if (!res.ok) throw new Error("Failed to subscribe");
-        return res.json();
-    },
-    // API Products
-    getWso2ApiProducts: async (projectId) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/api-products`);
-        if (!res.ok) throw new Error("Failed to fetch API products");
-        return res.json();
-    },
-    createWso2ApiProduct: async (projectId, data) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/api-products`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-        if (!res.ok) throw new Error("Failed to create API product");
-        return res.json();
-    },
-    getWso2ApiProduct: async (projectId, productId) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/api-products/${productId}`);
-        if (!res.ok) throw new Error("Failed to fetch API product");
-        return res.json();
-    },
-    // Documentation
-    getWso2ApiDocuments: async (projectId, apiId) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/apis/${apiId}/documents`);
-        if (!res.ok) throw new Error("Failed to fetch documents");
-        return res.json();
-    },
-    getWso2ApiDocumentContent: async (projectId, apiId, docId) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/apis/${apiId}/documents/${docId}/content`);
-        if (!res.ok) throw new Error("Failed to fetch document content");
-        return res.text();
-    },
-    addWso2ApiDocument: async (projectId, apiId, data) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/apis/${apiId}/documents`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-        });
-        if (!res.ok) throw new Error("Failed to add document");
-        return res.json();
-    },
-    // Policies
-    getWso2ThrottlingPolicies: async (projectId, level) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/throttling-policies/${level}`);
-        if (!res.ok) throw new Error("Failed to fetch throttling policies");
-        return res.json();
-    },
-    getWso2MediationPolicies: async (projectId, apiId) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/apis/${apiId}/mediation-policies`);
-        if (!res.ok) throw new Error("Failed to fetch mediation policies");
-        return res.json();
-    },
-    // Certificates
-    getWso2ClientCertificates: async (projectId, apiId) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/apis/${apiId}/client-certificates`);
-        if (!res.ok) throw new Error("Failed to fetch client certificates");
-        return res.json();
-    },
-    getWso2EndpointCertificates: async (projectId, apiId) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/apis/${apiId}/endpoint-certificates`);
-        if (!res.ok) throw new Error("Failed to fetch endpoint certificates");
-        return res.json();
-    },
-    // Lifecycle History
-    getWso2LifecycleHistory: async (projectId, apiId) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/apis/${apiId}/lifecycle-history`);
-        if (!res.ok) throw new Error("Failed to fetch lifecycle history");
-        return res.json();
-    },
-    // LLD Export
-    getLLDExport: async (projectId) => {
-        const res = await fetch(`${API_URL}/projects/${projectId}/lld-export`);
-        if (!res.ok) throw new Error('Failed to generate LLD export');
-        return res.json();
-    },
-    // Design Metadata (NB→SB field mapping)
-    saveDesignMetadata: async (apiId, designMetadata) => {
-        const res = await fetch(`${API_URL}/sub-apis/${apiId}/design-metadata`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ designMetadata })
-        });
-        if (!res.ok) throw new Error('Failed to save design metadata');
-        return res.json();
-    },
-    // Smart Launch (create + doc + policy + publish in one step)
-    smartLaunchWso2Api: async (projectId, apiId) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/smart-launch`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ apiId })
-        });
-        if (!res.ok) throw new Error('Smart Launch failed');
-        return res.json();
-    },
-    // Environment Promotion
-    promoteWso2Api: async (projectId, wso2ApiId, targetProjectId) => {
-        const res = await fetch(`${API_URL}/wso2/project/${projectId}/promote-api`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ wso2ApiId, targetProjectId })
-        });
-        if (!res.ok) throw new Error('Promotion failed');
-        return res.json();
-    },
-    // Proxy for fetching swagger (bypass CORS)
-    fetchProxySwagger: async (url) => {
-        const res = await fetch(`${API_URL}/proxy/swagger?url=${encodeURIComponent(url)}`);
-        if (!res.ok) throw new Error('Failed to fetch swagger through proxy');
-        return res.text();
-    }
+
+    // ── LLD EXPORT ────────────────────────────────────────────────────────
+    getLLDExport: (projectId) => apiClient.get(`/projects/${projectId}/lld-export`),
+
+    // ── PROXY (WSDL / SWAGGER) ────────────────────────────────────────────
+    /** Fetch & parse a remote WSDL via the backend proxy (token auto-injected) */
+    fetchWsdl: (wsdlUrl) => apiClient.fetchWsdl(wsdlUrl),
+
+    /** Fetch a remote Swagger/OpenAPI spec via the backend proxy (avoids CORS) */
+    fetchProxySwagger: (url) => apiClient.fetchSwagger(url, true),
+
+    // ── WSO2 ──────────────────────────────────────────────────────────────
+    publishToWso2: (apiId) => apiClient.post('/wso2/publish', { apiId }),
+
+    importWso2Project: () => apiClient.post('/wso2/import', {}),
+
+    createWso2Project: (data) => apiClient.post('/wso2/project', data),
+
+    getWso2ProjectApis: (projectId) =>
+        apiClient.get(`/wso2/project/${projectId}/apis`),
+
+    getWso2ApiSwagger: (projectId, wso2ApiId) =>
+        apiClient.get(`/wso2/project/${projectId}/apis/${wso2ApiId}/swagger`),
+
+    getWso2ApiLifecycle: (projectId, wso2ApiId) =>
+        apiClient.get(`/wso2/project/${projectId}/apis/${wso2ApiId}/lifecycle`),
+
+    changeWso2ApiLifecycle: (projectId, wso2ApiId, action) =>
+        apiClient.post(`/wso2/project/${projectId}/apis/${wso2ApiId}/lifecycle`, { action }),
+
+    getWso2ApiSubscriptions: (projectId, wso2ApiId) =>
+        apiClient.get(`/wso2/project/${projectId}/apis/${wso2ApiId}/subscriptions`),
+
+    getWso2SubscriptionPolicies: (projectId) =>
+        apiClient.get(`/wso2/project/${projectId}/subscription-policies`),
+
+    getWso2Applications: (projectId) =>
+        apiClient.get(`/wso2/project/${projectId}/applications`),
+
+    createWso2Application: (projectId, data) =>
+        apiClient.post(`/wso2/project/${projectId}/applications`, data),
+
+    generateWso2ApplicationKeys: (projectId, appId, keyType) =>
+        apiClient.post(`/wso2/project/${projectId}/applications/${appId}/keys`, { keyType }),
+
+    subscribeToWso2Api: (projectId, data) =>
+        apiClient.post(`/wso2/project/${projectId}/subscriptions`, data),
+
+    getWso2ApiProducts: (projectId) =>
+        apiClient.get(`/wso2/project/${projectId}/api-products`),
+
+    createWso2ApiProduct: (projectId, data) =>
+        apiClient.post(`/wso2/project/${projectId}/api-products`, data),
+
+    getWso2ApiProduct: (projectId, productId) =>
+        apiClient.get(`/wso2/project/${projectId}/api-products/${productId}`),
+
+    getWso2ApiDocuments: (projectId, apiId) =>
+        apiClient.get(`/wso2/project/${projectId}/apis/${apiId}/documents`),
+
+    getWso2ApiDocumentContent: (projectId, apiId, docId) =>
+        apiClient.get(
+            `/wso2/project/${projectId}/apis/${apiId}/documents/${docId}/content`,
+            { rawText: true }
+        ),
+
+    addWso2ApiDocument: (projectId, apiId, data) =>
+        apiClient.post(`/wso2/project/${projectId}/apis/${apiId}/documents`, data),
+
+    getWso2ThrottlingPolicies: (projectId, level) =>
+        apiClient.get(`/wso2/project/${projectId}/throttling-policies/${level}`),
+
+    getWso2MediationPolicies: (projectId, apiId) =>
+        apiClient.get(`/wso2/project/${projectId}/apis/${apiId}/mediation-policies`),
+
+    getWso2ClientCertificates: (projectId, apiId) =>
+        apiClient.get(`/wso2/project/${projectId}/apis/${apiId}/client-certificates`),
+
+    getWso2EndpointCertificates: (projectId, apiId) =>
+        apiClient.get(`/wso2/project/${projectId}/apis/${apiId}/endpoint-certificates`),
+
+    getWso2LifecycleHistory: (projectId, apiId) =>
+        apiClient.get(`/wso2/project/${projectId}/apis/${apiId}/lifecycle-history`),
+
+    smartLaunchWso2Api: (projectId, apiId) =>
+        apiClient.post(`/wso2/project/${projectId}/smart-launch`, { apiId }),
+
+    promoteWso2Api: (projectId, wso2ApiId, targetProjectId) =>
+        apiClient.post(`/wso2/project/${projectId}/promote-api`, { wso2ApiId, targetProjectId }),
 };

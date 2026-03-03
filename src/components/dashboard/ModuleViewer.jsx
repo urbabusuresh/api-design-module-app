@@ -8,6 +8,7 @@ import toast from 'react-hot-toast';
 import SwaggerUI from "swagger-ui-react";
 import "swagger-ui-react/swagger-ui.css";
 import { api } from '../../api';
+import { apiClient } from '../../apiClient';
 import { AdvancedApiTester } from './AdvancedApiTester';
 import { ApiHealthMonitor } from './ApiHealthMonitor';
 import { CollectionRunner } from './CollectionRunner';
@@ -390,9 +391,8 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
         if (!wsdlImport.url.trim()) return;
         setWsdlImport(prev => ({ ...prev, loading: true, error: '', operations: [], selected: new Set() }));
         try {
-            const res = await fetch(`/api/proxy/wsdl?url=${encodeURIComponent(wsdlImport.url.trim())}`);
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Failed to fetch WSDL');
+            // apiClient.fetchWsdl() → token auto-injected, routed via backend proxy
+            const data = await apiClient.fetchWsdl(wsdlImport.url.trim());
             if (!data.operations?.length) throw new Error('No operations found in WSDL');
             setWsdlImport(prev => ({
                 ...prev,
