@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Key, RefreshCw, Layers, Shield, ExternalLink, Activity } from 'lucide-react';
 import { api } from '../../api';
+import toast from 'react-hot-toast';
 
 const ApplicationsManager = ({ project }) => {
     const [applications, setApplications] = useState([]);
@@ -36,7 +37,7 @@ const ApplicationsManager = ({ project }) => {
             setNewApp({ name: '', throttlingPolicy: 'Unlimited', description: '', tokenType: 'JWT' });
             await loadApplications();
         } catch (e) {
-            alert("Failed to create application: " + e.message);
+            toast.error("Failed to create application: " + e.message);
         } finally {
             setCreating(false);
         }
@@ -47,9 +48,9 @@ const ApplicationsManager = ({ project }) => {
             setKeyLoading(true);
             await api.generateWso2ApplicationKeys(project.id, appId, keyType);
             await loadApplications(); // Refresh to get key info if possible (though WSO2 Dev Portal API usually needed for full key retrieval)
-            alert(`${keyType} keys generated successfully!`);
+            toast.success(`${keyType} keys generated successfully!`);
         } catch (e) {
-            alert(`Failed to generate ${keyType} keys: ` + e.message);
+            toast.error(`Failed to generate ${keyType} keys: ` + e.message);
         } finally {
             setKeyLoading(false);
         }

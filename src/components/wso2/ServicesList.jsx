@@ -41,15 +41,15 @@ const ServicesList = ({ apis, onServiceClick }) => {
                     <div
                         key={service.id}
                         onClick={() => onServiceClick(service)}
-                        className="group bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-indigo-500/50 hover:shadow-xl hover:shadow-indigo-500/10 transition-all cursor-pointer"
+                        className="group bg-slate-900 border border-slate-800 rounded-xl p-5 hover:border-red-500/50 hover:shadow-xl hover:shadow-red-500/10 transition-all cursor-pointer"
                     >
                         <div className="flex items-start justify-between">
                             <div className="flex items-start space-x-4 flex-1 min-w-0">
-                                <div className="p-3 bg-indigo-500/10 rounded-xl group-hover:bg-indigo-500/20 transition-colors shrink-0">
-                                    <Layers className="w-6 h-6 text-indigo-400" />
+                                <div className="p-3 bg-red-500/10 rounded-xl group-hover:bg-red-500/20 transition-colors shrink-0">
+                                    <Layers className="w-6 h-6 text-red-400" />
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                    <h3 className="text-lg font-bold text-white mb-1 group-hover:text-indigo-400 transition-colors truncate">
+                                    <h3 className="text-lg font-bold text-white mb-1 group-hover:text-red-400 transition-colors truncate">
                                         {service.name}
                                     </h3>
                                     <p className="text-sm text-slate-400 line-clamp-2 mb-3">
@@ -57,18 +57,18 @@ const ServicesList = ({ apis, onServiceClick }) => {
                                     </p>
                                     <div className="flex items-center space-x-4 text-xs">
                                         <span className="text-slate-500">
-                                            <span className="font-bold text-indigo-400">{service.apiCount}</span> endpoints
+                                            <span className="font-bold text-red-400">{service.apiCount}</span> endpoints
                                         </span>
                                         <span className="text-slate-500">Version: {service.version}</span>
                                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${service.status === 'PUBLISHED' ? 'bg-emerald-500/10 text-emerald-400' :
-                                                'bg-slate-800 text-slate-400'
+                                            'bg-slate-800 text-slate-400'
                                             }`}>
                                             {service.status}
                                         </span>
                                     </div>
                                 </div>
                             </div>
-                            <div className="flex items-center space-x-2 text-slate-500 group-hover:text-indigo-400 transition-colors shrink-0 ml-4">
+                            <div className="flex items-center space-x-2 text-slate-500 group-hover:text-red-400 transition-colors shrink-0 ml-4">
                                 <span className="text-sm font-medium">View APIs</span>
                                 <ArrowRight className="w-4 h-4" />
                             </div>

@@ -4,6 +4,7 @@ import {
     Server, BookOpen, Key, ChevronRight, Check, Layers, Shield,
     Zap, X, Lock, ArrowUpRight
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 export default function ProjectSelection({ projects, onSelect, onCreate, onImportWso2, onDelete, user, onLogout }) {
     const [showModal, setShowModal] = useState(false);
@@ -41,7 +42,7 @@ export default function ProjectSelection({ projects, onSelect, onCreate, onImpor
             await onImportWso2(wso2Data);
             setShowWso2Modal(false);
             setWso2Data({ name: '', url: 'https://localhost:9443', env: 'DEV', username: 'admin', password: 'admin' });
-        } catch { alert('Failed to create WSO2 workspace'); }
+        } catch { toast.error('Failed to create WSO2 workspace'); }
     };
 
     const filteredProjects = (projects || []).filter(p =>
@@ -124,6 +125,11 @@ export default function ProjectSelection({ projects, onSelect, onCreate, onImpor
                                         <div className="text-[9px] text-slate-500 uppercase tracking-wider">{user.role || 'User'}</div>
                                     </div>
                                 </div>
+                                {user.canManageUsers && (
+                                    <button onClick={() => window.location.hash = '/admin/users'} className="p-2 hover:bg-slate-800 rounded-lg text-slate-500 hover:text-indigo-400 transition-colors" title="User Management">
+                                        <Shield className="w-4 h-4" />
+                                    </button>
+                                )}
                                 <button onClick={onLogout} className="p-2 hover:bg-slate-800 rounded-lg text-slate-500 hover:text-red-400 transition-colors" title="Sign Out">
                                     <LogOut className="w-4 h-4" />
                                 </button>
@@ -131,9 +137,9 @@ export default function ProjectSelection({ projects, onSelect, onCreate, onImpor
                         )}
 
                         <button onClick={() => setShowWso2Modal(true)}
-                            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-400 hover:text-sky-400 hover:bg-sky-400/5 rounded-xl transition-all border border-transparent hover:border-sky-400/20"
+                            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-400 hover:text-red-500 hover:bg-red-500/5 rounded-xl transition-all border border-transparent hover:border-red-500/20"
                         >
-                            <Globe className="w-4 h-4" />
+                            <img src="/wso2-apim.png" alt="WSO2 APIM" className="w-4 h-4 object-contain grayscale group-hover:grayscale-0 transition-all" />
                             <span className="hidden sm:inline">Connect WSO2</span>
                         </button>
 
@@ -166,9 +172,9 @@ export default function ProjectSelection({ projects, onSelect, onCreate, onImpor
                                 <Plus className="w-5 h-5" /> Create First Project
                             </button>
                             <button onClick={() => setShowWso2Modal(true)}
-                                className="flex items-center gap-2 px-6 py-3 border border-sky-500/30 text-sky-400 hover:bg-sky-500/10 rounded-xl font-bold transition-all"
+                                className="flex items-center gap-2 px-6 py-3 border border-red-500/30 text-red-400 hover:bg-red-500/10 rounded-xl font-bold transition-all"
                             >
-                                <Globe className="w-5 h-5" /> Connect WSO2
+                                <img src="/wso2-apim.png" alt="WSO2 APIM" className="w-5 h-5 object-contain" /> Connect WSO2
                             </button>
                         </div>
                     </div>
@@ -470,18 +476,18 @@ function ProjectCard({ project, isWso2, onSelect, onDelete, idx }) {
             onClick={() => onSelect(project)}
             className={`group relative cursor-pointer rounded-2xl border transition-all duration-300 overflow-hidden animate-fade-in-up
                 ${isWso2
-                    ? 'bg-gradient-to-br from-sky-950/40 to-slate-900 border-sky-900/40 hover:border-sky-500/40 hover:shadow-xl hover:shadow-sky-500/10'
+                    ? 'bg-gradient-to-br from-red-950/40 to-slate-900 border-red-900/40 hover:border-red-500/40 hover:shadow-xl hover:shadow-red-500/10'
                     : 'bg-gradient-to-br from-slate-900 to-slate-900/80 border-slate-800 hover:border-indigo-500/40 hover:shadow-xl hover:shadow-indigo-500/10'
                 }`}
             style={{ animationDelay: `${idx * 50}ms` }}
         >
-            <div className={`absolute inset-0 bg-gradient-to-br opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none ${isWso2 ? 'from-sky-500/5 to-transparent' : 'from-indigo-500/5 to-transparent'}`} />
+            <div className={`absolute inset-0 bg-gradient-to-br opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none ${isWso2 ? 'from-red-500/5 to-transparent' : 'from-indigo-500/5 to-transparent'}`} />
 
             <div className="p-5">
                 <div className="flex justify-between items-start mb-4">
                     <div className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-300 shadow-lg
-                        ${isWso2 ? 'bg-sky-900/40 text-sky-400 group-hover:bg-sky-600 group-hover:text-white' : 'bg-slate-800 text-slate-500 group-hover:bg-indigo-600 group-hover:text-white'}`}>
-                        {isWso2 ? <Globe className="w-5 h-5" /> : <Folder className="w-5 h-5" />}
+                        ${isWso2 ? 'bg-red-900/40 text-red-400 group-hover:bg-red-600 group-hover:text-white' : 'bg-slate-800 text-slate-500 group-hover:bg-indigo-600 group-hover:text-white'}`}>
+                        {isWso2 ? <img src="/wso2-apim.png" alt="WSO2 APIM" className="w-6 h-6 object-contain" /> : <Folder className="w-5 h-5" />}
                     </div>
                     <button
                         onClick={e => { e.stopPropagation(); if (confirm(`Delete "${project.name}"?`)) onDelete(project.id); }}
@@ -491,15 +497,15 @@ function ProjectCard({ project, isWso2, onSelect, onDelete, idx }) {
                     </button>
                 </div>
 
-                <h3 className={`text-base font-bold mb-1.5 truncate transition-colors leading-tight ${isWso2 ? 'text-sky-100 group-hover:text-white' : 'text-slate-200 group-hover:text-white'}`} title={project.name}>
+                <h3 className={`text-base font-bold mb-1.5 truncate transition-colors leading-tight ${isWso2 ? 'text-red-100 group-hover:text-white' : 'text-slate-200 group-hover:text-white'}`} title={project.name}>
                     {project.name}
                 </h3>
                 <p className="text-slate-500 text-xs line-clamp-2 leading-relaxed h-8">{project.description || 'No description'}</p>
 
                 <div className="mt-4 pt-3 border-t border-slate-800/60 flex items-center justify-between">
                     {isWso2 ? (
-                        <div className="flex items-center gap-1.5 text-sky-500">
-                            <div className="w-1.5 h-1.5 rounded-full bg-sky-500 animate-pulse" />
+                        <div className="flex items-center gap-1.5 text-red-500">
+                            <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
                             <span className="text-[10px] font-bold uppercase tracking-wider">Remote Gateway</span>
                         </div>
                     ) : (
@@ -509,8 +515,8 @@ function ProjectCard({ project, isWso2, onSelect, onDelete, idx }) {
                             <div className="flex items-center gap-1"><BookOpen className="w-3 h-3" /><span>{project.modules?.length || 0} Mod</span></div>
                         </div>
                     )}
-                    <div className={`p-1.5 rounded-lg transition-all duration-300 opacity-0 group-hover:opacity-100 ${isWso2 ? 'bg-sky-900/30' : 'bg-indigo-600/20'}`}>
-                        <ArrowUpRight className={`w-3.5 h-3.5 ${isWso2 ? 'text-sky-400' : 'text-indigo-400'}`} />
+                    <div className={`p-1.5 rounded-lg transition-all duration-300 opacity-0 group-hover:opacity-100 ${isWso2 ? 'bg-red-900/30' : 'bg-indigo-600/20'}`}>
+                        <ArrowUpRight className={`w-3.5 h-3.5 ${isWso2 ? 'text-red-400' : 'text-indigo-400'}`} />
                     </div>
                 </div>
             </div>

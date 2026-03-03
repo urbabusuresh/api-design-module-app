@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
     LayoutGrid, Search, ChevronLeft, Settings, Activity,
-    Globe, Layers, List,Box, GitBranch
+    Globe, Layers, List, Box, GitBranch
 } from 'lucide-react';
 import ApiCard from '../components/wso2/ApiCard.jsx';
 import ApiDetailPanel from '../components/wso2/ApiDetailPanel.jsx';
@@ -69,12 +69,12 @@ const Wso2ProjectDashboard = ({ project, onBack, onRefresh }) => {
             {/* Sidebar */}
             <div className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col">
                 <div className="p-4 border-b border-slate-800 flex items-center space-x-3">
-                    <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-lg shadow-indigo-500/30">
-                        <Globe className="w-5 h-5 text-white" />
+                    <div className="w-8 h-8 bg-red-600/20 border border-red-500/30 rounded-lg flex items-center justify-center shadow-lg shadow-red-500/10">
+                        <img src="/wso2-apim.png" alt="WSO2" className="w-5 h-5 object-contain" />
                     </div>
                     <div>
                         <h1 className="font-bold text-lg tracking-tight text-white leading-none">WSO2 Portal</h1>
-                        <span className="text-[10px] uppercase font-bold text-indigo-400 tracking-wider">API Manager</span>
+                        <span className="text-[10px] uppercase font-bold text-red-500 tracking-wider">API Manager</span>
                     </div>
                 </div>
 
@@ -88,7 +88,7 @@ const Wso2ProjectDashboard = ({ project, onBack, onRefresh }) => {
 
                     <button
                         onClick={() => { setViewMode('services'); setSelectedService(null); }}
-                        className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors ${viewMode === 'services' ? 'bg-indigo-600/10 text-indigo-400 border border-indigo-500/20' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                        className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors ${viewMode === 'services' ? 'bg-red-600/10 text-red-400 border border-red-500/20' : 'text-slate-400 hover:text-white hover:bg-slate-800'
                             }`}
                     >
                         <Layers className="w-4 h-4" />
@@ -97,7 +97,7 @@ const Wso2ProjectDashboard = ({ project, onBack, onRefresh }) => {
 
                     <button
                         onClick={() => { setViewMode('all-apis'); setSelectedService(null); }}
-                        className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors ${viewMode === 'all-apis' ? 'bg-indigo-600/10 text-indigo-400 border border-indigo-500/20' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                        className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors ${viewMode === 'all-apis' ? 'bg-red-600/10 text-red-400 border border-red-500/20' : 'text-slate-400 hover:text-white hover:bg-slate-800'
                             }`}
                     >
                         <LayoutGrid className="w-4 h-4" />
@@ -106,7 +106,7 @@ const Wso2ProjectDashboard = ({ project, onBack, onRefresh }) => {
 
                     <button
                         onClick={() => { setViewMode('products'); setSelectedService(null); }}
-                        className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors ${viewMode === 'products' ? 'bg-indigo-600/10 text-indigo-400 border border-indigo-500/20' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                        className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors ${viewMode === 'products' ? 'bg-red-600/10 text-red-400 border border-red-500/20' : 'text-slate-400 hover:text-white hover:bg-slate-800'
                             }`}
                     >
                         <Box className="w-4 h-4" />
@@ -115,7 +115,7 @@ const Wso2ProjectDashboard = ({ project, onBack, onRefresh }) => {
 
                     <button
                         onClick={() => { setViewMode('applications'); setSelectedService(null); }}
-                        className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors ${viewMode === 'applications' ? 'bg-indigo-600/10 text-indigo-400 border border-indigo-500/20' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                        className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors ${viewMode === 'applications' ? 'bg-red-600/10 text-red-400 border border-red-500/20' : 'text-slate-400 hover:text-white hover:bg-slate-800'
                             }`}
                     >
                         <Layers className="w-4 h-4" />
@@ -124,7 +124,7 @@ const Wso2ProjectDashboard = ({ project, onBack, onRefresh }) => {
 
                     <button
                         onClick={() => { setViewMode('deployments'); setSelectedService(null); }}
-                        className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors ${viewMode === 'deployments' ? 'bg-indigo-600/10 text-indigo-400 border border-indigo-500/20' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                        className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors ${viewMode === 'deployments' ? 'bg-red-600/10 text-red-400 border border-red-500/20' : 'text-slate-400 hover:text-white hover:bg-slate-800'
                             }`}
                     >
                         <GitBranch className="w-4 h-4" />
@@ -134,12 +134,12 @@ const Wso2ProjectDashboard = ({ project, onBack, onRefresh }) => {
 
                 <div className="p-4 border-t border-slate-800">
                     <div className="flex items-center space-x-3 px-3 py-2 bg-slate-800 rounded-lg">
-                        <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-xs font-bold">
+                        <div className="w-8 h-8 rounded-full bg-red-500 flex items-center justify-center text-xs font-bold text-white shadow-lg shadow-red-500/20">
                             {project.name.substring(0, 2).toUpperCase()}
                         </div>
                         <div className="flex-1 min-w-0">
                             <div className="text-sm font-bold truncate">{project.name}</div>
-                            <div className="text-[10px] text-slate-400 truncate">Connected</div>
+                            <div className="text-[10px] text-red-500 font-bold">Connected</div>
                         </div>
                     </div>
                 </div>
@@ -166,14 +166,14 @@ const Wso2ProjectDashboard = ({ project, onBack, onRefresh }) => {
                                 placeholder="Search APIs..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="pl-9 pr-4 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 w-64 transition-all"
+                                className="pl-9 pr-4 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-red-500 w-64 transition-all"
                             />
                         </div>
                         <div className="h-6 w-px bg-slate-700 mx-2" />
                         <select
                             value={statusFilter}
                             onChange={(e) => setStatusFilter(e.target.value)}
-                            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-indigo-500"
+                            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-red-500"
                         >
                             <option value="ALL">All Status</option>
                             <option value="PUBLISHED">Published</option>

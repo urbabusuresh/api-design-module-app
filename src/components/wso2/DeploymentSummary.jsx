@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Activity, CheckCircle, AlertCircle, Clock, RefreshCw, ArrowRight, Globe } from 'lucide-react';
 import { api } from '../../api';
+import toast from 'react-hot-toast';
 
 const STATUS_CONFIG = {
     PUBLISHED: { color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20', icon: CheckCircle },
@@ -41,7 +42,7 @@ export default function DeploymentSummary({ project }) {
     useEffect(() => {
         api.getProjects().then(list => {
             setAllProjects((list || []).filter(p => p.type === 'WSO2_REMOTE' && p.id !== project.id));
-        }).catch(() => {});
+        }).catch(() => { });
     }, [project.id]);
 
     const grouped = {
@@ -73,7 +74,7 @@ export default function DeploymentSummary({ project }) {
     };
 
     const handlePromote = async (wso2Api) => {
-        if (!targetProjectId) { alert('Select a target environment first.'); return; }
+        if (!targetProjectId) { toast.error('Select a target environment first.'); return; }
         if (!confirm(`Promote "${wso2Api.name}" to selected environment?`)) return;
         setLoading(true);
         try {

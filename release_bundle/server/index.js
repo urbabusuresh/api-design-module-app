@@ -148,8 +148,6 @@ async function initDb() {
             await ensureColumn('users', 'can_manage_users', "BOOLEAN DEFAULT FALSE");
             await ensureColumn('projects', 'status', "VARCHAR(50) DEFAULT 'Active'");
             await ensureColumn('projects', 'type', "VARCHAR(20) DEFAULT 'LOCAL'");
-            await ensureColumn('api_catalog', 'body_format', "VARCHAR(20) DEFAULT 'json'");
-            await ensureColumn('module_api_catalog', 'body_format', "VARCHAR(20) DEFAULT 'json'");
             await ensureColumn('projects', 'connection_details', "JSON");
             await ensureColumn('systems', 'status', "VARCHAR(50) DEFAULT 'Active'");
             await ensureColumn('services', 'status', "VARCHAR(50) DEFAULT 'Active'");
@@ -488,7 +486,6 @@ app.get('/api/projects/:id', async (req, res) => {
                         module: api.module,
                         status: api.status,
                         description: api.description,
-                        bodyFormat: api.body_format || 'json',
                         providerSystem: api.provider_system,
 
                         // JSON Fields
@@ -711,7 +708,6 @@ app.post('/api/sub-apis', async (req, res) => {
         reference_link: api.referenceLink,
         remarks: api.remarks || null,
         design_metadata: api.designMetadata ? JSON.stringify(api.designMetadata) : null,
-        body_format: api.bodyFormat || 'json',
 
         // Convert frontend consumers/downstream back to channels JSON
         // FIX: Do NOT put downstream dependencies in 'southbound' channels array anymore, as we use api_dependencies table now.
@@ -1423,11 +1419,7 @@ app.delete('/api/modules/:id', async (req, res) => {
 app.get('/api/modules/:id/apis', async (req, res) => {
     try {
         const [apis] = await pool.query('SELECT * FROM module_api_catalog WHERE module_id = ? ORDER BY api_name', [req.params.id]);
-        res.json(apis.map(a => ({
-            ...a,
-            bodyFormat: a.body_format || 'json',
-            isAuthApi: !!a.is_auth_api
-        })));
+        res.json(apis);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -1443,8 +1435,8 @@ app.post('/api/modules/:id/apis', async (req, res) => {
             const apiId = generateId('mapi');
             await pool.query(
                 `INSERT INTO module_api_catalog 
-                (id, module_id, api_name, url, http_method, description, swagger_reference, headers, request_body, response_body, authentication, status, is_auth_api, body_format) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, module_id, api_name, url, http_method, description, swagger_reference, headers, request_body, response_body, authentication, status, is_auth_api) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE
                 api_name = VALUES(api_name),
                 description = VALUES(description),
@@ -1453,8 +1445,7 @@ app.post('/api/modules/:id/apis', async (req, res) => {
                 request_body = VALUES(request_body),
                 response_body = VALUES(response_body),
                 authentication = VALUES(authentication),
-                is_auth_api = VALUES(is_auth_api),
-                body_format = VALUES(body_format)`,
+                is_auth_api = VALUES(is_auth_api)`,
                 [
                     apiId, id, item.name, item.url, item.method, item.description, item.swaggerRef,
                     JSON.stringify(item.headers || {}),
@@ -1462,8 +1453,7 @@ app.post('/api/modules/:id/apis', async (req, res) => {
                     JSON.stringify(item.response_body || {}),
                     JSON.stringify(item.authentication || { type: 'None' }),
                     'Active',
-                    item.isAuthApi ? 1 : 0,
-                    item.bodyFormat || 'json'
+                    item.isAuthApi ? 1 : 0
                 ]
             );
         }
@@ -1480,7 +1470,7 @@ app.put('/api/modules/apis/:id', async (req, res) => {
         await pool.query(
             `UPDATE module_api_catalog SET 
                 api_name = ?, url = ?, http_method = ?, description = ?, swagger_reference = ?, 
-                headers = ?, request_body = ?, response_body = ?, authentication = ?, status = ?, is_auth_api = ?, body_format = ? 
+                headers = ?, request_body = ?, response_body = ?, authentication = ?, status = ?, is_auth_api = ? 
             WHERE id = ?`,
             [
                 api.name, api.url, api.method, api.description, api.swaggerRef,
@@ -1490,7 +1480,6 @@ app.put('/api/modules/apis/:id', async (req, res) => {
                 JSON.stringify(api.authentication || { type: 'None' }),
                 api.status || 'Active',
                 api.isAuthApi ? 1 : 0,
-                api.bodyFormat || 'json',
                 id
             ]
         );
@@ -1519,11 +1508,7 @@ app.post('/api/test-endpoint', async (req, res) => {
         const hasBody = body && (typeof body === 'object' ? Object.keys(body).length > 0 : body.length > 0);
 
         if (hasBody && !finalHeaders['Content-Type'] && !finalHeaders['content-type']) {
-            if (req.body.bodyFormat === 'xml') {
-                finalHeaders['Content-Type'] = 'text/xml; charset=utf-8';
-            } else {
-                finalHeaders['Content-Type'] = 'application/json';
-            }
+            finalHeaders['Content-Type'] = 'application/json';
         }
 
         const response = await fetch(url, {
@@ -1694,65 +1679,6 @@ app.get('/api/projects/:id/test-logs', async (req, res) => {
                 response_body: safeJSONParse(l.response_body),
             }))
         });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// WSDL Proxy & Parser - avoids CORS by fetching WSDL server-side
-app.get('/api/proxy/wsdl', async (req, res) => {
-    const { url } = req.query;
-    if (!url) return res.status(400).json({ error: 'url query param required' });
-
-    try {
-        const response = await fetch(url, {
-            headers: { 'Accept': 'text/xml, application/xml, application/wsdl+xml, */*' }
-        });
-        if (!response.ok) throw new Error(`Upstream WSDL fetch failed: ${response.status} ${response.statusText}`);
-
-        const xmlText = await response.text();
-
-        // Simple WSDL Parser using regex (no XML library needed on server)
-        const opRegex = /<(?:wsdl:)?operation\s+name="([^"]+)"/gi;
-        const addressRegex = /<(?:soap:|soap12:|http:)?address\s+location="([^"]+)"/i;
-
-        const operations = [];
-        const seen = new Set();
-        let match;
-
-        while ((match = opRegex.exec(xmlText)) !== null) {
-            const name = match[1];
-            if (!seen.has(name)) {
-                seen.add(name);
-                operations.push({
-                    name,
-                    description: `SOAP Operation: ${name}`,
-                    method: 'POST',
-                    bodyFormat: 'xml',
-                    soapTemplate: `<?xml version="1.0" encoding="UTF-8"?>\n<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">\n   <soapenv:Header/>\n   <soapenv:Body>\n      <${name}>\n         <!-- Add parameters here -->\n      </${name}>\n   </soapenv:Body>\n</soapenv:Envelope>`
-                });
-            }
-        }
-
-        const addressMatch = addressRegex.exec(xmlText);
-        const endpoint = addressMatch ? addressMatch[1] : '';
-
-        res.json({ endpoint, operations });
-    } catch (err) {
-        console.error('WSDL Proxy Error:', err.message);
-        res.status(500).json({ error: err.message });
-    }
-});
-
-// Generic proxy for fetching remote XML/Swagger specs (avoids CORS)
-app.get('/api/proxy/swagger', async (req, res) => {
-    const { url } = req.query;
-    if (!url) return res.status(400).json({ error: 'url required' });
-    try {
-        const r = await fetch(url);
-        const text = await r.text();
-        res.setHeader('Content-Type', r.headers.get('content-type') || 'text/plain');
-        res.send(text);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

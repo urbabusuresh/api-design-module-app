@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { GitBranch, CheckCircle, XCircle, Clock, ArrowRight } from 'lucide-react';
 import { api } from '../../api';
+import toast from 'react-hot-toast';
 
 const LifecycleManager = ({ apiItem, project, onUpdate }) => {
     const [lifecycle, setLifecycle] = useState(null);
@@ -50,7 +51,7 @@ const LifecycleManager = ({ apiItem, project, onUpdate }) => {
             await loadLifecycle();
             if (onUpdate) onUpdate();
         } catch (e) {
-            alert('Failed to change lifecycle: ' + e.message);
+            toast.error('Failed to change lifecycle: ' + e.message);
         } finally {
             setChanging(false);
         }

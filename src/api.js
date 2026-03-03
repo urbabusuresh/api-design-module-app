@@ -1,4 +1,7 @@
-const API_URL = 'http://localhost:3001/api';
+const API_URL = import.meta.env.VITE_API_URL ||
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+        ? 'http://localhost:3001/api'
+        : '/api');
 
 export const api = {
     getProjects: async () => {
@@ -29,6 +32,14 @@ export const api = {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ settings })
+        });
+        return res.json();
+    },
+    updateProjectVariables: async (id, variables) => {
+        const res = await fetch(`${API_URL}/projects/${id}/variables`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ variables })
         });
         return res.json();
     },
@@ -71,6 +82,38 @@ export const api = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to create user');
+        }
+        return res.json();
+    },
+    getUsers: async () => {
+        const res = await fetch(`${API_URL}/users`);
+        return res.json();
+    },
+    updatePassword: async (username, newPassword) => {
+        const res = await fetch(`${API_URL}/users/${username}/password`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ newPassword })
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to update password');
+        }
+        return res.json();
+    },
+    updateUser: async (id, data) => {
+        const res = await fetch(`${API_URL}/users/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to update user');
+        }
         return res.json();
     },
     // --- MODULES ---
@@ -87,6 +130,26 @@ export const api = {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
+        });
+        return res.json();
+    },
+    deleteModule: async (id) => {
+        const res = await fetch(`${API_URL}/modules/${id}`, {
+            method: 'DELETE'
+        });
+        return res.json();
+    },
+    updateSystem: async (id, name) => {
+        const res = await fetch(`${API_URL}/systems/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        return res.json();
+    },
+    deleteSystem: async (id) => {
+        const res = await fetch(`${API_URL}/systems/${id}`, {
+            method: 'DELETE'
         });
         return res.json();
     },
@@ -145,8 +208,17 @@ export const api = {
         });
         return res.json();
     },
-    getTestLogs: async (projectId) => {
-        const res = await fetch(`${API_URL}/projects/${projectId}/test-logs`);
+    updateAuthProfile: async (id, data) => {
+        const res = await fetch(`${API_URL}/auth-profiles/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        return res.json();
+    },
+    getTestLogs: async (projectId, params = {}) => {
+        const query = new URLSearchParams(params).toString();
+        const res = await fetch(`${API_URL}/projects/${projectId}/test-logs${query ? `?${query}` : ''}`);
         return res.json();
     },
     publishToWso2: async (apiId) => {
@@ -338,5 +410,11 @@ export const api = {
         });
         if (!res.ok) throw new Error('Promotion failed');
         return res.json();
+    },
+    // Proxy for fetching swagger (bypass CORS)
+    fetchProxySwagger: async (url) => {
+        const res = await fetch(`${API_URL}/proxy/swagger?url=${encodeURIComponent(url)}`);
+        if (!res.ok) throw new Error('Failed to fetch swagger through proxy');
+        return res.text();
     }
 };

@@ -99,7 +99,6 @@ CREATE TABLE IF NOT EXISTS api_catalog (
     design_doc VARCHAR(255),
     reference_link VARCHAR(255),
     remarks TEXT,
-    body_format VARCHAR(20) DEFAULT 'json', -- 'json' or 'xml'
     
     -- NB to SB Design Mapper metadata (field-level mapping)
     design_metadata JSON,
@@ -147,7 +146,6 @@ CREATE TABLE IF NOT EXISTS module_api_catalog (
     provider_system VARCHAR(100),
     swagger_reference VARCHAR(255),
     is_auth_api BOOLEAN DEFAULT FALSE,
-    body_format VARCHAR(20) DEFAULT 'json',
     
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

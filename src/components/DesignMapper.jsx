@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { Plus, Trash2, Save, ArrowRight, CheckCircle } from 'lucide-react';
 import { api } from '../api';
+import toast from 'react-hot-toast';
 
 // Transformation types supported between NB field and SB field
 const TRANSFORM_TYPES = ['Direct', 'Rename', 'Constant', 'Expression', 'Ignore'];
@@ -59,7 +60,7 @@ export default function DesignMapper({ localApi, setLocalApi, onSaved }) {
             if (onSaved) onSaved(metadata);
             setTimeout(() => setSaved(false), 2000);
         } catch (e) {
-            alert('Failed to save design metadata: ' + e.message);
+            toast.error('Failed to save design metadata: ' + e.message);
         } finally {
             setSaving(false);
         }
