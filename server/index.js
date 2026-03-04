@@ -4,7 +4,9 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const fs = require('fs');
 const path = require('path');
-require('dotenv').config();
+const envFile = process.env.ENV_PATH || (fs.existsSync(path.join(__dirname, 'app.env')) ? path.join(__dirname, 'app.env') : path.join(__dirname, '.env'));
+require('dotenv').config({ path: envFile });
+console.log(`Using environment file: ${envFile}`);
 const rateLimit = require('express-rate-limit');
 const {
     publishApiToWso2, listApisFromWso2, getApiSwaggerFromWso2,
@@ -981,6 +983,78 @@ app.post('/api/wso2/project/:id/smart-launch', basicRateLimit(5, 60 * 1000), asy
     }
 });
 
+// Advanced Publish: Handles both 'individual' creation and appending to 'existing' APIs
+app.post('/api/wso2/project/:id/publish-advanced', basicRateLimit(5, 60 * 1000), async (req, res) => {
+    const { id } = req.params;
+    const { apiId, mode, existingWso2ApiId } = req.body;
+    try {
+        const [projRows] = await pool.query('SELECT connection_details FROM projects WHERE id = ?', [id]);
+        if (projRows.length === 0) return res.status(404).json({ error: 'Project not found' });
+        let config = projRows[0].connection_details;
+        if (typeof config === 'string') config = JSON.parse(config);
+
+        const { smartLaunch, publishApiToWso2 } = require('./wso2_publisher');
+
+        // Check if apiId is a SERVICE (Root API) or an ENDPOINT (Sub API)
+        const [svcRows] = await pool.query('SELECT * FROM services WHERE id = ?', [apiId]);
+
+        if (svcRows.length > 0) {
+            // CASE 1: EXPOSING A FULL SERVICE (ROOT API)
+            const serviceData = svcRows[0];
+            const [endpoints] = await pool.query('SELECT * FROM api_catalog WHERE service_id = ?', [apiId]);
+
+            // For a Service, we bundle all endpoints into a single Swagger/API
+            // We'll use the service name and one representative downstream URL (or mock)
+            const downstreamUrl = endpoints.length > 0 ? endpoints[0].url : 'http://localhost:8080/mock';
+
+            // Map endpoints to WSO2 format (simple mock for now, publisher handles Swagger generation)
+            serviceData.endpoints = endpoints; // attach for the publisher to see
+
+            if (mode === 'individual') {
+                const result = await smartLaunch(serviceData, downstreamUrl, config);
+                await pool.query("UPDATE services SET status = 'Published' WHERE id = ?", [apiId]);
+                return res.json({ success: true, ...result });
+            } else {
+                // Not standard according to user request, but handle gracefully
+                return res.status(400).json({ error: 'Services can only be published as standalone APIs currently' });
+            }
+        }
+
+        // CASE 2: EXPOSING A SINGLE ENDPOINT (SUB API)
+        const [apis] = await pool.query('SELECT * FROM api_catalog WHERE id = ?', [apiId]);
+        if (apis.length === 0) return res.status(404).json({ error: 'API or Service not found' });
+        const apiData = apis[0];
+
+        const [deps] = await pool.query(
+            `SELECT c.url FROM api_dependencies d JOIN api_catalog c ON d.child_api_id = c.id WHERE d.parent_api_id = ? AND d.type = 'Direct' ORDER BY d.priority ASC LIMIT 1`,
+            [apiId]
+        );
+        const downstreamUrl = deps.length > 0 ? deps[0].url : 'http://localhost:8080/mock';
+
+        if (mode === 'individual') {
+            const result = await smartLaunch(apiData, downstreamUrl, config);
+            await pool.query("UPDATE api_catalog SET status = 'Published' WHERE id = ?", [apiId]);
+            return res.json({ success: true, ...result });
+        } else if (mode === 'existing') {
+            const { appendToExistingWso2Api } = require('./wso2_publisher');
+            const result = await appendToExistingWso2Api(existingWso2ApiId, apiData, config);
+
+            await pool.query("UPDATE api_catalog SET status = 'Appended' WHERE id = ?", [apiId]);
+            return res.json({
+                success: true,
+                wso2Id: existingWso2ApiId,
+                status: 'Appended',
+                message: 'Successfully added endpoint to existing WSO2 API service.'
+            });
+        }
+
+        res.status(400).json({ error: 'Invalid mode' });
+    } catch (err) {
+        console.error("Advanced Publish Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Promote API: sync an API from one WSO2 environment to another
 app.post('/api/wso2/project/:id/promote-api', rateLimit(5, 60 * 1000), async (req, res) => {
     const { id } = req.params;
@@ -1125,45 +1199,18 @@ app.get('/api/wso2/project/:id/apis', async (req, res) => {
         // We pretend these belong to a "WSO2 System" -> "Default Service"
         // This is purely for frontend visual compatibility
 
-        let mappedApis = [];
-
-        apis.forEach(api => {
-            if (api.operations && api.operations.length > 0) {
-                // Create an entry per operation (endpoint)
-                api.operations.forEach((op, index) => {
-                    mappedApis.push({
-                        id: `${api.id}_op_${index}`, // Unique ID for React
-                        api_name: `${api.name} - ${op.verb} ${op.target}`,
-                        url: (api.context + op.target).replace('//', '/'), // Full path
-                        http_method: op.verb,
-                        version: api.version,
-                        status: api.lifeCycleStatus,
-                        description: api.description,
-                        // Add WSO2 specific meta
-                        wso2_id: api.id,
-                        provider: api.provider,
-                        endpoint_config: api.endpointConfig,
-                        api_type: api.type
-                    });
-                });
-            } else {
-                // Fallback for API with no operations
-                mappedApis.push({
-                    id: api.id,
-                    api_name: api.name,
-                    url: api.context, // Main identifier
-                    http_method: 'GET', // Default
-                    version: api.version,
-                    status: api.lifeCycleStatus,
-                    description: api.description,
-                    // Add WSO2 specific meta
-                    wso2_id: api.id,
-                    provider: api.provider,
-                    endpoint_config: api.endpointConfig,
-                    api_type: api.type
-                });
-            }
-        });
+        // Return one entry per WSO2 API (not per operation).
+        // The Expose drawer needs top-level API names + IDs only.
+        const mappedApis = apis.map(api => ({
+            id: api.id,
+            name: `${api.name} (v${api.version})`,
+            version: api.version,
+            status: api.lifeCycleStatus,
+            description: api.description,
+            context: api.context,
+            provider: api.provider,
+            operationCount: (api.operations || []).length
+        }));
 
         res.json(mappedApis);
 

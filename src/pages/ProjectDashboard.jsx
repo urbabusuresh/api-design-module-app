@@ -5,13 +5,15 @@ import {
     Shield, Code, MessageSquare, Tag, FileJson, CheckCircle, Share2, Laptop,
     Edit2, LayoutList, Grid, Lock, BookOpen, Layers as LayersIcon,
     Eye, Key, History, Play, GitBranch, Copy, Clock, Trash2,
-    Sun, Moon, SlidersHorizontal
+    Sun, Moon, SlidersHorizontal, Waypoints, Network
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SwaggerUI from "swagger-ui-react";
 import "swagger-ui-react/swagger-ui.css";
 import { api } from '../api';
 import DesignMapper from '../components/DesignMapper.jsx';
+import ConfirmModal from '../components/dashboard/ConfirmModal.jsx';
+import { Tooltip } from 'react-tooltip';
 
 // Extracted Components
 import { AdvancedApiTester } from '../components/dashboard/AdvancedApiTester';
@@ -23,10 +25,11 @@ import { ModuleViewer } from '../components/dashboard/ModuleViewer';
 import { NbSbMappingView } from '../components/dashboard/NbSbMappingView';
 import { TestDrawer } from '../components/dashboard/TestDrawer';
 import { EnvVariableManager } from '../components/dashboard/EnvVariableManager';
+import { Wso2ExposeDrawer } from '../components/dashboard/Wso2ExposeDrawer';
 import { useTheme } from '../ThemeContext.jsx';
 
 // Main Workspace Component (The Dashboard)
-export default function ProjectDashboard({ project, onBack, onRefresh }) {
+export default function ProjectDashboard({ project, onBack, onRefresh, allProjects }) {
     const { theme, toggleTheme } = useTheme();
     const [currentView, setCurrentView] = useState('dashboard'); // dashboard, settings, testLogs, nbsbMap
     const [selectedSystemId, setSelectedSystemId] = useState(project.systems?.[0]?.id);
@@ -40,6 +43,8 @@ export default function ProjectDashboard({ project, onBack, onRefresh }) {
     const [systemViewMode, setSystemViewMode] = useState('services'); // 'services' (cards) | 'apis' (flat list)
     const [mainPromptConfig, setMainPromptConfig] = useState(null);
     const [showEnvManager, setShowEnvManager] = useState(false);
+    const [confirmConfig, setConfirmConfig] = useState(null); // { title, message, onConfirm, type }
+    const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
 
     // Filters
     const [filterCategory, setFilterCategory] = useState('All');
@@ -65,6 +70,7 @@ export default function ProjectDashboard({ project, onBack, onRefresh }) {
                 if (testApiTarget) { setTestApiTarget(null); return; }
                 if (mainPromptConfig) { setMainPromptConfig(null); return; }
                 if (isCreatingRoot) { setIsCreatingRoot(false); return; }
+                if (confirmConfig) { setConfirmConfig(null); return; }
             }
         };
         window.addEventListener('keydown', handler);
@@ -115,13 +121,19 @@ export default function ProjectDashboard({ project, onBack, onRefresh }) {
     };
 
     const handleDeleteModule = async (id, name) => {
-        if (!confirm(`Are you sure you want to delete module "${name}"?`)) return;
-        try {
-            await api.deleteModule(id);
-            if (selectedModuleId === id) setSelectedModuleId(null);
-            onRefresh();
-            toast.success("Module deleted");
-        } catch (e) { toast.error("Failed to delete module"); }
+        setConfirmConfig({
+            title: 'Delete Module',
+            message: `Are you sure you want to delete module "${name}"? This action cannot be undone.`,
+            onConfirm: async () => {
+                try {
+                    await api.deleteModule(id);
+                    if (selectedModuleId === id) setSelectedModuleId(null);
+                    onRefresh();
+                    toast.success("Module deleted");
+                } catch (e) { toast.error("Failed to delete module"); }
+            },
+            type: 'danger'
+        });
     };
 
     const handleUpdateSystem = async (id, currentName) => {
@@ -140,13 +152,19 @@ export default function ProjectDashboard({ project, onBack, onRefresh }) {
     };
 
     const handleDeleteSystem = async (id, name) => {
-        if (!confirm(`Are you sure you want to delete system "${name}" and all its APIs?`)) return;
-        try {
-            await api.deleteSystem(id);
-            if (selectedSystemId === id) setSelectedSystemId(null);
-            onRefresh();
-            toast.success("System deleted");
-        } catch (e) { toast.error("Failed to delete system"); }
+        setConfirmConfig({
+            title: 'Delete System',
+            message: `Are you sure you want to delete system "${name}" and all its APIs? This will permanently remove all associated endpoints.`,
+            onConfirm: async () => {
+                try {
+                    await api.deleteSystem(id);
+                    if (selectedSystemId === id) setSelectedSystemId(null);
+                    onRefresh();
+                    toast.success("System deleted");
+                } catch (e) { toast.error("Failed to delete system"); }
+            },
+            type: 'danger'
+        });
     };
 
     const handleCreateRootApi = async (name, version, context, desc) => {
@@ -269,19 +287,11 @@ export default function ProjectDashboard({ project, onBack, onRefresh }) {
         }
     };
 
-    const handleExposeWso2 = async (apiId) => {
-        if (!confirm("Are you sure you want to expose this API to WSO2 APIM Gateway?")) return;
-        try {
-            const res = await api.publishToWso2(apiId);
-            if (res.success) {
-                toast.success(`API Published Successfully! WSO2 ID: ${res.wso2Id}`);
-                onRefresh();
-            } else {
-                toast.error(`Failed to Publish: ${res.details || res.error}`);
-            }
-        } catch (e) {
-            toast.error(`Error: ${e.message}`);
-        }
+    const [wso2ExposeApi, setWso2ExposeApi] = useState(null);
+
+    const handleExposeWso2 = (item, type = 'endpoint') => {
+        // Add type to the item so the drawer knows what it's dealing with
+        setWso2ExposeApi({ ...item, _isService: type === 'service' });
     };
 
     // Swagger Modal State
@@ -313,170 +323,208 @@ export default function ProjectDashboard({ project, onBack, onRefresh }) {
     return (
         <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
             {/* Sidebar */}
-            <aside className="w-[260px] bg-slate-900/90 border-r border-slate-800 flex flex-col backdrop-blur-xl shrink-0">
-                <div className="p-4 flex items-center space-x-3 cursor-pointer hover:bg-slate-800/50 transition-colors border-b border-slate-800/60 group" onClick={onBack}>
-                    <div className="w-8 h-8 bg-gradient-to-br from-indigo-600 to-violet-600 rounded-xl flex items-center justify-center shrink-0 shadow-lg shadow-indigo-500/20 group-hover:shadow-indigo-500/40 transition-shadow">
-                        <ArrowRight className="text-white w-4 h-4 rotate-180" />
-                    </div>
-                    <div>
-                        <div className="text-[9px] text-slate-500 uppercase font-bold tracking-[0.15em]">Workspace</div>
-                        <div className="text-sm font-bold text-white truncate max-w-[140px] group-hover:text-indigo-300 transition-colors">{project.name}</div>
+            <aside className={`${isSidebarExpanded ? 'w-[260px]' : 'w-20'} transition-all duration-300 bg-slate-900/90 border-r border-slate-800 flex flex-col backdrop-blur-xl shrink-0`}>
+                <div className="p-4 flex items-center justify-between border-b border-slate-800/60">
+                    <div className={`flex items-center space-x-3 cursor-pointer hover:bg-slate-800/50 transition-colors group ${isSidebarExpanded ? '' : 'justify-center w-full'}`} onClick={onBack}>
+                        <div className="w-8 h-8 bg-gradient-to-br from-red-700 to-red-900 rounded-xl flex items-center justify-center shrink-0 shadow-lg shadow-red-950/40 group-hover:scale-110 transition-transform border border-red-500/20"
+                            data-tooltip-id="sidebar-tooltip" data-tooltip-content={!isSidebarExpanded ? "Back to Workspaces" : ""}>
+                            <Waypoints className="text-white w-4 h-4" />
+                        </div>
+                        {isSidebarExpanded && (
+                            <div>
+                                <div className="text-[9px] text-slate-500 uppercase font-black tracking-[0.2em] opacity-80 mb-0.5">Workspace</div>
+                                <div className="text-sm font-black text-white truncate max-w-[140px] group-hover:text-red-400 transition-colors">{project.name}</div>
+                            </div>
+                        )}
                     </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-2 py-3">
+                <div className="flex-1 overflow-y-auto py-3 scrollbar-thin">
                     {/* Systems Section */}
-                    <div className="px-3 mb-2 flex items-center justify-between group/section">
-                        <div className="flex items-center gap-2">
-                            <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                            <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Systems</h3>
+                    {isSidebarExpanded ? (
+                        <div className="px-5 mb-2 flex items-center justify-between group/section">
+                            <div className="flex items-center gap-2">
+                                <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                                <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Systems</h3>
+                            </div>
+                            <button onClick={handleCreateSystem} className="text-slate-600 hover:text-blue-400 transition-colors opacity-0 group-hover/section:opacity-100 p-1 hover:bg-white/5 rounded-md" title="Add System">
+                                <Plus className="w-3 h-3" />
+                            </button>
                         </div>
-                        <button onClick={handleCreateSystem} className="text-slate-600 hover:text-indigo-400 transition-colors opacity-0 group-hover/section:opacity-100 p-1 hover:bg-slate-800 rounded-md" title="Add System">
-                            <Plus className="w-3 h-3" />
-                        </button>
-                    </div>
+                    ) : (
+                        <div className="flex justify-center mb-2">
+                            <button onClick={handleCreateSystem} className="p-2 text-slate-400 hover:text-blue-400 bg-slate-800/50 rounded-lg" data-tooltip-id="sidebar-tooltip" data-tooltip-content="Add System">
+                                <Plus className="w-4 h-4" />
+                            </button>
+                        </div>
+                    )}
 
-                    <div className="space-y-0.5 mb-4">
+                    <div className="space-y-1 mb-6 px-2">
                         {project.systems?.map(sys => (
                             <div key={sys.id} className="relative group/item">
                                 <button
                                     onClick={() => { setSelectedSystemId(sys.id); setSelectedRootId(null); setSelectedModuleId(null); setSelectedAuthView(false); setCurrentView('dashboard'); setSystemViewMode('services'); }}
-                                    className={`w-full text-left px-3 py-2 rounded-xl transition-all duration-200 flex items-center space-x-3 group ${selectedSystemId === sys.id && !selectedModuleId && !selectedAuthView && currentView === 'dashboard'
-                                        ? 'bg-indigo-600/10 text-white border border-indigo-500/20 shadow-sm'
-                                        : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 border border-transparent'
+                                    className={`w-full text-left p-2 rounded-xl transition-all duration-200 flex items-center ${isSidebarExpanded ? 'space-x-3 px-3' : 'justify-center'} group 
+                                        ${selectedSystemId === sys.id && !selectedModuleId && !selectedAuthView && currentView === 'dashboard'
+                                            ? 'bg-blue-600/10 text-white border border-blue-500/20 shadow-sm'
+                                            : 'text-slate-400 hover:bg-white/5 hover:text-slate-200 border border-transparent'
                                         }`}
+                                    data-tooltip-id="sidebar-tooltip" data-tooltip-content={!isSidebarExpanded ? sys.name : ""}
                                 >
-                                    <Box className={`w-4 h-4 shrink-0 ${selectedSystemId === sys.id && !selectedModuleId && !selectedAuthView ? 'text-indigo-400' : 'text-slate-600 group-hover:text-slate-400'}`} />
-                                    <span className="truncate flex-1 text-sm font-medium pr-8">{sys.name}</span>
-                                    {selectedSystemId === sys.id && !selectedModuleId && !selectedAuthView && currentView === 'dashboard' && (
-                                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0" />
+                                    <Box className={`shrink-0 ${isSidebarExpanded ? 'w-4 h-4' : 'w-5 h-5'} ${selectedSystemId === sys.id && !selectedModuleId && !selectedAuthView ? 'text-blue-400' : 'text-slate-600 group-hover:text-slate-400'}`} />
+                                    {isSidebarExpanded && <span className="truncate flex-1 text-sm font-medium pr-8">{sys.name}</span>}
+                                    {isSidebarExpanded && selectedSystemId === sys.id && !selectedModuleId && !selectedAuthView && currentView === 'dashboard' && (
+                                        <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0" />
                                     )}
                                 </button>
-                                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
-                                    <button onClick={(e) => { e.stopPropagation(); handleUpdateSystem(sys.id, sys.name); }} className="p-1 hover:text-indigo-400 text-slate-600 transition-colors">
-                                        <Edit2 className="w-3 h-3" />
-                                    </button>
-                                    <button onClick={(e) => { e.stopPropagation(); handleDeleteSystem(sys.id, sys.name); }} className="p-1 hover:text-red-400 text-slate-600 transition-colors">
-                                        <Trash2 className="w-3 h-3" />
-                                    </button>
-                                </div>
+                                {isSidebarExpanded && (
+                                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity bg-slate-900/80 backdrop-blur-sm rounded-md px-1">
+                                        <button onClick={(e) => { e.stopPropagation(); handleUpdateSystem(sys.id, sys.name); }} className="p-1 hover:text-indigo-400 text-slate-400 transition-colors">
+                                            <Edit2 className="w-3.5 h-3.5" />
+                                        </button>
+                                        <button onClick={(e) => { e.stopPropagation(); handleDeleteSystem(sys.id, sys.name); }} className="p-1 hover:text-red-400 text-slate-400 transition-colors">
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         ))}
                     </div>
 
                     {/* Modules Section */}
-                    <div className="px-3 mb-2 flex items-center justify-between group/section">
-                        <div className="flex items-center gap-2">
-                            <div className="w-1.5 h-1.5 rounded-full bg-pink-500" />
-                            <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Modules</h3>
+                    {isSidebarExpanded ? (
+                        <div className="px-5 mb-2 flex items-center justify-between group/section">
+                            <div className="flex items-center gap-2">
+                                <div className="w-1.5 h-1.5 rounded-full bg-pink-500" />
+                                <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Modules</h3>
+                            </div>
+                            <button onClick={handleCreateModule} className="text-slate-600 hover:text-pink-400 transition-colors opacity-0 group-hover/section:opacity-100 p-1 hover:bg-slate-800 rounded-md" title="Add Module">
+                                <Plus className="w-3 h-3" />
+                            </button>
                         </div>
-                        <button onClick={handleCreateModule} className="text-slate-600 hover:text-pink-400 transition-colors opacity-0 group-hover/section:opacity-100 p-1 hover:bg-slate-800 rounded-md" title="Add Module">
-                            <Plus className="w-3 h-3" />
-                        </button>
-                    </div>
-                    <div className="space-y-0.5 mb-4">
+                    ) : (
+                        <div className="flex justify-center mb-2">
+                            <button onClick={handleCreateModule} className="p-2 text-slate-400 hover:text-pink-400 bg-slate-800/50 rounded-lg" data-tooltip-id="sidebar-tooltip" data-tooltip-content="Add Module">
+                                <Plus className="w-4 h-4" />
+                            </button>
+                        </div>
+                    )}
+
+                    <div className="space-y-1 mb-6 px-2">
                         {project.modules?.map(mod => (
                             <div key={mod.id} className="relative group/item">
                                 <button
                                     onClick={() => { setSelectedModuleId(mod.id); setSelectedSystemId(null); setSelectedAuthView(false); setCurrentView('dashboard'); }}
-                                    className={`w-full text-left px-3 py-2 rounded-xl transition-all duration-200 flex items-center space-x-3 group ${selectedModuleId === mod.id && !selectedAuthView
-                                        ? 'bg-pink-500/10 text-white border border-pink-500/20 shadow-sm'
-                                        : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 border border-transparent'
+                                    className={`w-full text-left p-2 rounded-xl transition-all duration-200 flex items-center ${isSidebarExpanded ? 'space-x-3 px-3' : 'justify-center'} group 
+                                        ${selectedModuleId === mod.id && !selectedAuthView
+                                            ? 'bg-pink-500/10 text-white border border-pink-500/20 shadow-sm'
+                                            : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 border border-transparent'
                                         }`}
+                                    data-tooltip-id="sidebar-tooltip" data-tooltip-content={!isSidebarExpanded ? mod.name : ""}
                                 >
-                                    <BookOpen className={`w-4 h-4 shrink-0 ${selectedModuleId === mod.id && !selectedAuthView ? 'text-pink-400' : 'text-slate-600 group-hover:text-slate-400'}`} />
-                                    <span className="truncate flex-1 text-sm font-medium pr-4">{mod.name}</span>
-                                    {selectedModuleId === mod.id && !selectedAuthView && (
+                                    <BookOpen className={`shrink-0 ${isSidebarExpanded ? 'w-4 h-4' : 'w-5 h-5'} ${selectedModuleId === mod.id && !selectedAuthView ? 'text-pink-400' : 'text-slate-600 group-hover:text-slate-400'}`} />
+                                    {isSidebarExpanded && <span className="truncate flex-1 text-sm font-medium pr-4">{mod.name}</span>}
+                                    {isSidebarExpanded && selectedModuleId === mod.id && !selectedAuthView && (
                                         <div className="w-1.5 h-1.5 rounded-full bg-pink-400 shrink-0" />
                                     )}
                                 </button>
-                                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
-                                    <button onClick={(e) => { e.stopPropagation(); handleDeleteModule(mod.id, mod.name); }} className="p-1 hover:text-red-400 text-slate-600 transition-colors">
-                                        <Trash2 className="w-3 h-3" />
-                                    </button>
-                                </div>
+                                {isSidebarExpanded && (
+                                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity bg-slate-900/80 backdrop-blur-sm rounded-md px-1">
+                                        <button onClick={(e) => { e.stopPropagation(); handleDeleteModule(mod.id, mod.name); }} className="p-1 hover:text-red-400 text-slate-400 transition-colors">
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         ))}
                     </div>
 
                     {/* Security Section */}
-                    <div className="px-3 mb-2 flex items-center gap-2">
-                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                        <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Security</h3>
-                    </div>
-                    <div className="space-y-0.5 mb-1">
+                    {isSidebarExpanded && (
+                        <div className="px-5 mb-2 flex items-center gap-2">
+                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                            <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Security</h3>
+                        </div>
+                    )}
+                    <div className="space-y-1 mb-1 px-2">
                         <button
                             onClick={() => { setSelectedAuthView(true); setSelectedModuleId(null); setSelectedSystemId(null); setCurrentView('dashboard'); }}
-                            className={`w-full text-left px-3 py-2 rounded-xl transition-all duration-200 flex items-center space-x-3 group ${selectedAuthView
-                                ? 'bg-emerald-500/10 text-white border border-emerald-500/20 shadow-sm'
-                                : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 border border-transparent'
+                            className={`w-full text-left p-2 rounded-xl transition-all duration-200 flex items-center ${isSidebarExpanded ? 'space-x-3 px-3' : 'justify-center'} group 
+                                ${selectedAuthView
+                                    ? 'bg-emerald-500/10 text-white border border-emerald-500/20 shadow-sm'
+                                    : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 border border-transparent'
                                 }`}
+                            data-tooltip-id="sidebar-tooltip" data-tooltip-content={!isSidebarExpanded ? "Auth Profiles" : ""}
                         >
-                            <Key className={`w-4 h-4 shrink-0 ${selectedAuthView ? 'text-emerald-400' : 'text-slate-600'}`} />
-                            <span className="truncate flex-1 text-sm font-medium">Auth Profiles</span>
+                            <Key className={`shrink-0 ${isSidebarExpanded ? 'w-4 h-4' : 'w-5 h-5'} ${selectedAuthView ? 'text-emerald-400' : 'text-slate-600'}`} />
+                            {isSidebarExpanded && <span className="truncate flex-1 text-sm font-medium">Auth Profiles</span>}
                         </button>
                         <button
                             onClick={() => { setSelectedAuthView(false); setSelectedModuleId(null); setSelectedSystemId(null); setCurrentView('testLogs'); }}
-                            className={`w-full text-left px-3 py-2 rounded-xl transition-all duration-200 flex items-center space-x-3 group ${currentView === 'testLogs'
-                                ? 'bg-slate-800 text-white border border-slate-700 shadow-sm'
-                                : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 border border-transparent'
+                            className={`w-full text-left p-2 rounded-xl transition-all duration-200 flex items-center ${isSidebarExpanded ? 'space-x-3 px-3' : 'justify-center'} group 
+                                ${currentView === 'testLogs'
+                                    ? 'bg-white/5 text-white border border-white/10 shadow-sm'
+                                    : 'text-slate-400 hover:bg-white/5 hover:text-slate-200 border border-transparent'
                                 }`}
+                            data-tooltip-id="sidebar-tooltip" data-tooltip-content={!isSidebarExpanded ? "Test History" : ""}
                         >
-                            <History className={`w-4 h-4 shrink-0 ${currentView === 'testLogs' ? 'text-indigo-400' : 'text-slate-600'}`} />
-                            <span className="truncate flex-1 text-sm font-medium">Test History</span>
+                            <History className={`shrink-0 ${isSidebarExpanded ? 'w-4 h-4' : 'w-5 h-5'} ${currentView === 'testLogs' ? 'text-blue-400' : 'text-slate-600'}`} />
+                            {isSidebarExpanded && <span className="truncate flex-1 text-sm font-medium">Test History</span>}
+                        </button>
+                    </div>
+
+                    {/* Additional Views */}
+                    <div className="px-2 mt-4 space-y-1">
+                        <button
+                            onClick={() => { setSelectedAuthView(false); setSelectedModuleId(null); setSelectedSystemId(null); setCurrentView('nbsbMap'); }}
+                            className={`w-full flex items-center ${isSidebarExpanded ? 'space-x-3 px-3' : 'justify-center'} p-2 rounded-xl transition-all duration-200 group
+                                ${currentView === 'nbsbMap' ? 'bg-blue-600/10 text-white border border-blue-500/20 shadow-sm' : 'hover:bg-white/5 text-slate-400 hover:text-slate-200 border border-transparent'}`}
+                            data-tooltip-id="sidebar-tooltip" data-tooltip-content={!isSidebarExpanded ? "NB→SB Mapping" : ""}
+                        >
+                            <Share2 className={`shrink-0 ${isSidebarExpanded ? 'w-4 h-4' : 'w-5 h-5'} ${currentView === 'nbsbMap' ? 'text-blue-400' : 'text-slate-600'}`} />
+                            {isSidebarExpanded && <span className="text-sm font-medium truncate">NB→SB Mapping</span>}
                         </button>
                     </div>
                 </div>
 
-                <div className="p-2 border-t border-slate-800">
-                    <button
-                        onClick={() => { setSelectedAuthView(false); setSelectedModuleId(null); setSelectedSystemId(null); setCurrentView('nbsbMap'); }}
-                        className={`w-full flex items-center space-x-3 px-4 py-2.5 rounded-xl transition-colors mb-1 ${currentView === 'nbsbMap' ? 'bg-indigo-600/10 text-indigo-400 border border-indigo-500/20' : 'hover:bg-slate-800 text-slate-400 border border-transparent'}`}
-                    >
-                        <Share2 className="w-4 h-4 shrink-0" />
-                        <span className="text-sm font-medium">NB→SB Mapping</span>
-                    </button>
-                    <button
-                        onClick={() => setShowEnvManager(true)}
-                        className="w-full flex items-center space-x-3 px-4 py-2.5 rounded-xl transition-colors mb-1 hover:bg-purple-800/30 text-slate-400 hover:text-purple-300 border border-transparent"
-                        title="Manage environment variables (DEV/SIT/UAT/PROD)"
-                    >
-                        <SlidersHorizontal className="w-4 h-4 shrink-0 text-purple-500" />
-                        <span className="text-sm font-medium">Env Variables</span>
-                    </button>
-                    <div className="flex items-center gap-1 mb-1">
+                <div className="p-3 border-t border-slate-800 space-y-1">
+                    <div className={`flex items-center gap-1`}>
                         <button
                             onClick={() => setCurrentView('settings')}
-                            className={`flex-1 flex items-center space-x-3 px-4 py-2.5 rounded-xl transition-colors ${currentView === 'settings' ? 'bg-slate-800 text-white border border-slate-700' : 'hover:bg-slate-800 text-slate-400 border border-transparent'}`}
+                            className={`flex ${isSidebarExpanded ? 'flex-1 items-center space-x-3 px-4 py-2.5' : 'w-10 h-10 items-center justify-center p-0 mx-auto'} rounded-xl transition-colors 
+                                ${currentView === 'settings' ? 'bg-white/5 text-white border border-white/10' : 'hover:bg-white/5 text-slate-400 border border-transparent'}`}
+                            data-tooltip-id="sidebar-tooltip" data-tooltip-content={!isSidebarExpanded ? "Project Settings" : ""}
                         >
-                            <Settings className="w-4 h-4 shrink-0" />
-                            <span className="text-sm font-medium">Project Settings</span>
+                            <Settings className={`shrink-0 ${isSidebarExpanded ? 'w-4 h-4' : 'w-5 h-5'}`} />
+                            {isSidebarExpanded && <span className="text-sm font-medium truncate">Project Settings</span>}
                         </button>
                         <button
                             onClick={toggleTheme}
-                            className="p-2.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-amber-400 transition-colors border border-transparent"
+                            className={`${isSidebarExpanded ? 'p-2.5' : 'hidden'} rounded-xl hover:bg-slate-800 text-slate-400 hover:text-amber-400 transition-colors border border-transparent shrink-0`}
                             title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
                         >
                             {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
                         </button>
                     </div>
                 </div>
-            </aside>
 
-            {/* Environment Variable Manager */}
-            {showEnvManager && (
-                <EnvVariableManager
-                    project={project}
-                    environments={environments}
-                    onClose={() => setShowEnvManager(false)}
-                    onSaved={(vars) => { handleUpdateVariables(vars); setShowEnvManager(false); }}
-                />
-            )}
+                {/* Sidebar Toggle Button */}
+                <button
+                    onClick={() => setIsSidebarExpanded(!isSidebarExpanded)}
+                    className="absolute -right-3.5 top-20 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white p-1 rounded-full border border-slate-700 shadow-lg z-50 transition-colors"
+                >
+                    <ChevronRight className={`w-4 h-4 transition-transform duration-300 ${isSidebarExpanded ? 'rotate-180' : ''}`} />
+                </button>
+            </aside >
+            <Tooltip id="sidebar-tooltip" place="right" className="!bg-slate-800 !text-xs !font-bold !rounded-lg !px-3 !py-1.5 z-50" />
+
+
 
             {/* Main Content */}
             <main className="flex-1 flex flex-col relative bg-slate-950 transition-all overflow-hidden">
                 {currentView === 'settings' ? (
                     <ProjectSettings
+                        project={project}
                         settings={project.settings}
                         variables={project.globalVariables}
                         onUpdate={handleUpdateSettings}
@@ -517,7 +565,7 @@ export default function ProjectDashboard({ project, onBack, onRefresh }) {
                                     <>
                                         <button onClick={() => setSelectedRootId(null)} className="text-slate-400 hover:text-white transition-colors">{activeSystem?.name}</button>
                                         <ChevronRight className="w-4 h-4 text-slate-600" />
-                                        <span className="text-indigo-400 font-semibold">{activeRoot.name}</span>
+                                        <span className="text-red-500 font-bold">{activeRoot.name}</span>
                                     </>
                                 ) : (
                                     <h1 className="text-xl font-bold text-white">{activeSystem?.name || "System Dashboard"}</h1>
@@ -542,13 +590,13 @@ export default function ProjectDashboard({ project, onBack, onRefresh }) {
                                 {!selectedRootId && activeSystem && (
                                     <>
                                         <div className="relative group">
-                                            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-indigo-400 transition-colors" />
+                                            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-400 transition-colors" />
                                             <input
                                                 type="text"
                                                 placeholder="Search services or APIs..."
                                                 value={searchQuery}
                                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                                className="bg-slate-900 border border-slate-800 focus:border-indigo-500/50 rounded-lg pl-9 pr-4 py-1.5 text-xs text-white placeholder-slate-500 outline-none w-64 transition-all"
+                                                className="bg-slate-900 border border-slate-800 focus:border-blue-500/50 rounded-lg pl-9 pr-4 py-1.5 text-xs text-white placeholder-slate-500 outline-none w-64 transition-all"
                                             />
                                             {searchQuery && (
                                                 <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white">
@@ -560,15 +608,15 @@ export default function ProjectDashboard({ project, onBack, onRefresh }) {
                                         <div className="flex bg-slate-900 border border-slate-800 p-1 rounded-lg">
                                             <button
                                                 onClick={() => setSystemViewMode('services')}
-                                                className={`flex items-center space-x-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${systemViewMode === 'services' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                                                className={`flex items-center space-x-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${systemViewMode === 'services' ? 'bg-red-700 text-white shadow-lg shadow-red-900/40' : 'text-slate-400 hover:text-white'}`}
                                             >
-                                                <Grid className="w-3.5 h-3.5" /> <span>Services</span>
+                                                <Waypoints className="w-3.5 h-3.5" /> <span>Services</span>
                                             </button>
                                             <button
                                                 onClick={() => setSystemViewMode('apis')}
-                                                className={`flex items-center space-x-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${systemViewMode === 'apis' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                                                className={`flex items-center space-x-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${systemViewMode === 'apis' ? 'bg-red-700 text-white shadow-lg shadow-red-900/40' : 'text-slate-400 hover:text-white'}`}
                                             >
-                                                <LayoutList className="w-3.5 h-3.5" /> <span>All APIs</span>
+                                                <Network className="w-3.5 h-3.5" /> <span>All APIs</span>
                                             </button>
                                         </div>
                                     </>
@@ -722,7 +770,19 @@ export default function ProjectDashboard({ project, onBack, onRefresh }) {
                                                 >
                                                     <div className="flex justify-between items-start mb-2 gap-4">
                                                         <h3 className="text-lg font-bold text-white group-hover:text-indigo-400 transition-colors leading-tight truncate flex-1" title={api.name}>{api.name}</h3>
-                                                        <span className="text-[10px] font-black bg-slate-800 text-slate-500 px-2 py-0.5 rounded uppercase tracking-tighter shrink-0">{api.version}</span>
+                                                        <div className="flex items-center space-x-2 shrink-0">
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); handleExposeWso2(api, 'service'); }}
+                                                                className="relative p-2 hover:bg-red-500/10 rounded-lg transition-colors group/btn"
+                                                                title="Expose Service to WSO2"
+                                                            >
+                                                                <span className="absolute inset-0 flex items-center justify-center">
+                                                                    <span className="absolute w-6 h-6 rounded-full bg-red-500/20 animate-ping" />
+                                                                </span>
+                                                                <Activity className="relative w-4 h-4 text-red-500 group-hover/btn:text-red-400 transition-colors" />
+                                                            </button>
+                                                            <span className="text-[10px] font-black bg-slate-800 text-slate-500 px-2 py-0.5 rounded uppercase tracking-tighter">{api.version}</span>
+                                                        </div>
                                                     </div>
                                                     <p className="text-sm text-slate-500 line-clamp-2 h-10">{api.description}</p>
                                                     <div className="mt-6 flex items-center justify-between">
@@ -840,7 +900,12 @@ export default function ProjectDashboard({ project, onBack, onRefresh }) {
                                                                     <button onClick={(e) => { e.stopPropagation(); setTestApiTarget(apiItem); }} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-emerald-400 transition-colors" title="Test API"><Play className="w-4 h-4" /></button>
                                                                     <button onClick={(e) => { e.stopPropagation(); setShowSwaggerModal(apiItem); }} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-amber-400 transition-colors" title="View Swagger"><FileJson className="w-4 h-4" /></button>
                                                                     <button onClick={(e) => { e.stopPropagation(); setSelectedSubApi(apiItem); }} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-indigo-400 transition-colors" title="View Details"><Eye className="w-4 h-4" /></button>
-                                                                    <button onClick={(e) => { e.stopPropagation(); handleExposeWso2(apiItem.id); }} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-sky-400 transition-colors" title="Expose to WSO2"><Globe className="w-4 h-4" /></button>
+                                                                    <button onClick={(e) => { e.stopPropagation(); handleExposeWso2(apiItem); }} className="relative p-2 hover:bg-red-500/10 rounded-lg transition-colors group" title="Expose to WSO2">
+                                                                        <span className="absolute inset-0 flex items-center justify-center">
+                                                                            <span className="absolute w-6 h-6 rounded-full bg-red-500/20 animate-ping" />
+                                                                        </span>
+                                                                        <Activity className="relative w-4 h-4 text-red-400 group-hover:text-red-300 transition-colors" />
+                                                                    </button>
                                                                 </div>
                                                             </div>
 
@@ -986,108 +1051,141 @@ export default function ProjectDashboard({ project, onBack, onRefresh }) {
             </main>
 
             {/* Swagger Modal */}
-            {showSwaggerModal && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-md p-6">
-                    <div className="bg-white rounded-2xl w-full max-w-6xl h-[90vh] flex flex-col shadow-2xl overflow-hidden relative">
-                        <div className="flex justify-between items-center p-4 border-b bg-slate-50">
-                            <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                                <FileJson className="w-5 h-5 text-amber-500" />
-                                Swagger UI: {showSwaggerModal.name}
-                            </h3>
-                            <button onClick={() => setShowSwaggerModal(null)} className="p-2 hover:bg-slate-200 rounded-full text-slate-600 transition-colors">
-                                <X className="w-6 h-6" />
-                            </button>
-                        </div>
-                        <div className="flex-1 overflow-auto bg-white p-4">
-                            {swaggerSpec ? (
-                                <SwaggerUI spec={swaggerSpec} />
-                            ) : (
-                                <div className="flex items-center justify-center h-full text-slate-400 gap-2">
-                                    <div className="w-6 h-6 border-2 border-slate-300 border-t-indigo-500 rounded-full animate-spin"></div>
-                                    Loading Definition...
-                                </div>
-                            )}
+            {
+                showSwaggerModal && (
+                    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-md p-6">
+                        <div className="bg-white rounded-2xl w-full max-w-6xl h-[90vh] flex flex-col shadow-2xl overflow-hidden relative">
+                            <div className="flex justify-between items-center p-4 border-b bg-slate-50">
+                                <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                                    <FileJson className="w-5 h-5 text-amber-500" />
+                                    Swagger UI: {showSwaggerModal.name}
+                                </h3>
+                                <button onClick={() => setShowSwaggerModal(null)} className="p-2 hover:bg-slate-200 rounded-full text-slate-600 transition-colors">
+                                    <X className="w-6 h-6" />
+                                </button>
+                            </div>
+                            <div className="flex-1 overflow-auto bg-white p-4">
+                                {swaggerSpec ? (
+                                    <SwaggerUI spec={swaggerSpec} />
+                                ) : (
+                                    <div className="flex items-center justify-center h-full text-slate-400 gap-2">
+                                        <div className="w-6 h-6 border-2 border-slate-200 border-t-blue-500 rounded-full animate-spin"></div>
+                                        Loading Definition...
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
 
-            {isCreatingRoot && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                    <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl animate-scale-in">
-                        <div className="p-6 border-b border-slate-800 flex justify-between items-center">
-                            <h3 className="text-lg font-bold text-white">Create New API Service</h3>
-                            <button onClick={() => setIsCreatingRoot(false)} className="text-slate-500 hover:text-white"><X className="w-5 h-5" /></button>
+            {
+                isCreatingRoot && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                        <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl animate-scale-in">
+                            <div className="p-6 border-b border-slate-800 flex justify-between items-center">
+                                <h3 className="text-lg font-bold text-white">Create New API Service</h3>
+                                <button onClick={() => setIsCreatingRoot(false)} className="text-slate-500 hover:text-white"><X className="w-5 h-5" /></button>
+                            </div>
+                            <form onSubmit={(e) => {
+                                e.preventDefault();
+                                const formData = new FormData(e.target);
+                                handleCreateRootApi(
+                                    formData.get('name'),
+                                    formData.get('version'),
+                                    formData.get('context'),
+                                    formData.get('description')
+                                );
+                            }} className="p-6 space-y-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Service Name</label>
+                                    <input name="name" required placeholder="e.g. Payment Gateway" className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:border-blue-500 outline-none" />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Context</label>
+                                        <input name="context" required placeholder="/api/v1/payments" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono text-sm focus:border-blue-500 outline-none" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Version</label>
+                                        <input name="version" defaultValue="v1.0.0" className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono text-sm focus:border-blue-500 outline-none" />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Description</label>
+                                    <textarea name="description" className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:border-blue-500 outline-none h-24 resize-none"></textarea>
+                                </div>
+                                <div className="pt-4 flex justify-end space-x-3">
+                                    <button type="button" onClick={() => setIsCreatingRoot(false)} className="px-4 py-2 text-slate-400 hover:text-white text-sm">Cancel</button>
+                                    <button type="submit" className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-bold shadow-lg shadow-blue-500/20">Create Service</button>
+                                </div>
+                            </form>
                         </div>
-                        <form onSubmit={(e) => {
-                            e.preventDefault();
-                            const formData = new FormData(e.target);
-                            handleCreateRootApi(
-                                formData.get('name'),
-                                formData.get('version'),
-                                formData.get('context'),
-                                formData.get('description')
-                            );
-                        }} className="p-6 space-y-4">
-                            <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Service Name</label>
-                                <input name="name" required placeholder="e.g. Payment Gateway" className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:border-indigo-500 outline-none" />
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Context</label>
-                                    <input name="context" required placeholder="/api/v1/payments" className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white font-mono text-sm focus:border-indigo-500 outline-none" />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Version</label>
-                                    <input name="version" defaultValue="v1.0.0" className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono text-sm focus:border-indigo-500 outline-none" />
-                                </div>
-                            </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Description</label>
-                                <textarea name="description" className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white focus:border-indigo-500 outline-none h-24 resize-none"></textarea>
-                            </div>
-                            <div className="pt-4 flex justify-end space-x-3">
-                                <button type="button" onClick={() => setIsCreatingRoot(false)} className="px-4 py-2 text-slate-400 hover:text-white text-sm">Cancel</button>
-                                <button type="submit" className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-bold shadow-lg shadow-indigo-500/20">Create Service</button>
-                            </div>
-                        </form>
                     </div>
-                </div>
-            )}
+                )
+            }
 
-            {mainPromptConfig && (
-                <PromptModal
-                    isOpen={!!mainPromptConfig}
-                    title={mainPromptConfig.title}
-                    placeholder={mainPromptConfig.placeholder}
-                    onConfirm={mainPromptConfig.onConfirm}
-                    onCancel={() => setMainPromptConfig(null)}
-                />
-            )}
+            {
+                mainPromptConfig && (
+                    <PromptModal
+                        isOpen={!!mainPromptConfig}
+                        title={mainPromptConfig.title}
+                        placeholder={mainPromptConfig.placeholder}
+                        onConfirm={mainPromptConfig.onConfirm}
+                        onCancel={() => setMainPromptConfig(null)}
+                    />
+                )
+            }
 
-            {testApiTarget && (
-                <TestDrawer
-                    api={testApiTarget}
-                    project={project}
-                    selectedEnv={selectedEnv}
-                    onRefresh={onRefresh}
-                    onClose={() => setTestApiTarget(null)}
-                />
-            )}
+            {
+                testApiTarget && (
+                    <TestDrawer
+                        api={testApiTarget}
+                        project={project}
+                        selectedEnv={selectedEnv}
+                        onRefresh={onRefresh}
+                        onClose={() => setTestApiTarget(null)}
+                    />
+                )
+            }
 
-            {selectedSubApi && (
-                <SubApiDrawer
-                    api={selectedSubApi}
-                    onClose={() => setSelectedSubApi(null)}
-                    onSave={handleUpdateSubApi}
-                    project={project}
-                    selectedEnv={selectedEnv}
-                    services={activeSystem?.rootApis || []}
-                    allApis={project.systems?.flatMap(s => s.rootApis?.flatMap(r => r.subApis)) || []}
-                    modules={project.modules || []}
-                />
-            )}
-        </div>
+            {
+                selectedSubApi && (
+                    <SubApiDrawer
+                        api={selectedSubApi}
+                        onClose={() => setSelectedSubApi(null)}
+                        onSave={(updatedApi) => handleUpdateSubApi(updatedApi.rootApiId || selectedSubApi.rootApiId, updatedApi)}
+                        project={project}
+                        selectedEnv={selectedEnv}
+                        services={activeSystem?.rootApis || []}
+                        allApis={project.systems?.flatMap(s => s.rootApis?.flatMap(r => r.subApis)) || []}
+                        modules={project.modules || []}
+                    />
+                )
+            }
+
+            <Wso2ExposeDrawer
+                isOpen={!!wso2ExposeApi}
+                onClose={(shouldRefresh) => {
+                    setWso2ExposeApi(null);
+                    if (shouldRefresh === true) onRefresh();
+                }}
+                selectedApi={wso2ExposeApi}
+                allProjects={allProjects}
+            />
+
+            {/* Confirmation Modal */}
+            <ConfirmModal
+                isOpen={!!confirmConfig}
+                title={confirmConfig?.title || "Confirmation"}
+                message={confirmConfig?.message || "Are you sure?"}
+                type={confirmConfig?.type || "danger"}
+                onConfirm={async () => {
+                    await confirmConfig.onConfirm();
+                    setConfirmConfig(null);
+                }}
+                onCancel={() => setConfirmConfig(null)}
+            />
+        </div >
     );
 }

@@ -9,6 +9,7 @@ import SwaggerUI from "swagger-ui-react";
 import "swagger-ui-react/swagger-ui.css";
 import { api } from '../../api';
 import { apiClient } from '../../apiClient';
+import ConfirmModal from './ConfirmModal.jsx';
 import { AdvancedApiTester } from './AdvancedApiTester';
 import { ApiHealthMonitor } from './ApiHealthMonitor';
 import { CollectionRunner } from './CollectionRunner';
@@ -256,6 +257,7 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
     const [bulkMode, setBulkMode] = useState(false);
     const [bulkSelected, setBulkSelected] = useState(new Set());
     const [bulkStatus, setBulkStatus] = useState('');
+    const [confirmConfig, setConfirmConfig] = useState(null); // { title, message, onConfirm, type }
 
     useEffect(() => {
         loadApis();
@@ -289,12 +291,18 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
     };
 
     const handleDelete = async (id) => {
-        if (!confirm("Delete this catalog API?")) return;
-        try {
-            await api.deleteModuleApi(id);
-            loadApis();
-            toast.success("API removed from catalog");
-        } catch (e) { toast.error("Delete failed"); }
+        setConfirmConfig({
+            title: 'Delete API',
+            message: 'Are you sure you want to delete this catalog API? This action cannot be undone.',
+            onConfirm: async () => {
+                try {
+                    await api.deleteModuleApi(id);
+                    loadApis();
+                    toast.success("API removed from catalog");
+                } catch (e) { toast.error("Delete failed"); }
+            },
+            type: 'danger'
+        });
     };
 
     const handleDuplicate = async (apiItem) => {
@@ -455,17 +463,23 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
 
     const handleBulkDelete = async () => {
         if (!bulkSelected.size) return;
-        if (!confirm(`Delete ${bulkSelected.size} selected APIs?`)) return;
-        const toastId = toast.loading(`Deleting ${bulkSelected.size} APIs...`);
-        try {
-            await Promise.all([...bulkSelected].map(id => api.deleteModuleApi(id)));
-            toast.success(`Deleted ${bulkSelected.size} APIs`, { id: toastId });
-            setBulkSelected(new Set());
-            setBulkMode(false);
-            loadApis();
-        } catch (e) {
-            toast.error('Bulk delete failed: ' + e.message, { id: toastId });
-        }
+        setConfirmConfig({
+            title: 'Bulk Delete',
+            message: `Are you sure you want to delete ${bulkSelected.size} selected APIs?`,
+            onConfirm: async () => {
+                const toastId = toast.loading(`Deleting ${bulkSelected.size} APIs...`);
+                try {
+                    await Promise.all([...bulkSelected].map(id => api.deleteModuleApi(id)));
+                    toast.success(`Deleted ${bulkSelected.size} APIs`, { id: toastId });
+                    setBulkSelected(new Set());
+                    setBulkMode(false);
+                    loadApis();
+                } catch (e) {
+                    toast.error('Bulk delete failed: ' + e.message, { id: toastId });
+                }
+            },
+            type: 'danger'
+        });
     };
 
     const handleApiStatusTransition = async (apiItem, newStatus) => {
@@ -746,6 +760,19 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
                     </div>
                 </div>
             )}
+
+            {/* Confirmation Modal */}
+            <ConfirmModal
+                isOpen={!!confirmConfig}
+                title={confirmConfig?.title}
+                message={confirmConfig?.message}
+                type={confirmConfig?.type}
+                onConfirm={async () => {
+                    await confirmConfig.onConfirm();
+                    setConfirmConfig(null);
+                }}
+                onCancel={() => setConfirmConfig(null)}
+            />
         </div>
     );
 }

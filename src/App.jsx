@@ -18,8 +18,8 @@ function App() {
   // Auto-init user from storage
   useEffect(() => {
     try {
-      const savedUser = localStorage.getItem('raptr_user');
-      const savedTime = localStorage.getItem('raptr_auth_time');
+      const savedUser = localStorage.getItem('knotapi_user');
+      const savedTime = localStorage.getItem('knotapi_auth_time');
 
       if (savedUser && savedTime) {
         const elapsed = Date.now() - parseInt(savedTime, 10);
@@ -27,8 +27,8 @@ function App() {
         if (elapsed < 60 * 60 * 1000) {
           setUser(JSON.parse(savedUser));
         } else {
-          localStorage.removeItem('raptr_user');
-          localStorage.removeItem('raptr_auth_time');
+          localStorage.removeItem('knotapi_user');
+          localStorage.removeItem('knotapi_auth_time');
         }
       }
     } catch (e) {
@@ -54,15 +54,15 @@ function App() {
 
   const handleLogin = (u) => {
     setUser(u);
-    localStorage.setItem('raptr_user', JSON.stringify(u));
-    localStorage.setItem('raptr_auth_time', Date.now().toString());
+    localStorage.setItem('knotapi_user', JSON.stringify(u));
+    localStorage.setItem('knotapi_auth_time', Date.now().toString());
   };
 
   const handleLogout = () => {
     setUser(null);
     setActiveProject(null);
-    localStorage.removeItem('raptr_user');
-    localStorage.removeItem('raptr_auth_time');
+    localStorage.removeItem('knotapi_user');
+    localStorage.removeItem('knotapi_auth_time');
   };
 
   useEffect(() => {
@@ -97,15 +97,18 @@ function App() {
 
         wso2Service.subApis = apis.map(a => ({
           id: a.id,
-          name: a.api_name,
-          url: a.url,
-          method: a.http_method,
+          name: a.name || a.api_name || 'Unnamed API',   // new shape: name; old shape: api_name
+          url: a.url || a.context || '',                  // new shape: context; old shape: url
+          method: a.method || a.http_method || 'GET',
           description: a.description,
-          status: a.status,
+          status: a.status || a.lifeCycleStatus,
+          version: a.version,
           // WSO2 specific
-          wso2_id: a.wso2_id,
-          endpoint_config: a.endpoint_config,
-          api_type: a.api_type,
+          wso2_id: a.wso2_id || a.id,
+          endpoint_config: a.endpoint_config || a.endpointConfig,
+          api_type: a.api_type || a.type,
+          provider: a.provider,
+          operationCount: a.operationCount,
           // Add extra fields needed for display
           module: 'WSO2',
           consumers: [],
@@ -185,7 +188,7 @@ function App() {
   }
 
   if (loading) {
-    return <div className="h-screen bg-slate-950 flex items-center justify-center text-indigo-500">Loading Workspace...</div>;
+    return <div className="h-screen bg-slate-950 flex items-center justify-center text-slate-500 font-medium lowercase tracking-wide">Loading <span className="text-red-700 font-extrabold uppercase ml-2">KNOT</span><span className="text-red-500 font-bold uppercase"><span className="logo-ai-highlight inline-block">A</span>P<span className="logo-ai-highlight inline-block">I</span></span> Workspace...</div>;
   }
 
   if (view === 'admin-users') {
@@ -229,6 +232,7 @@ function App() {
       ) : (
         <ProjectDashboard
           project={activeProject}
+          allProjects={projects}
           onRefresh={() => handleSelectProject(activeProject, true)}
           onBack={() => { setActiveProject(null); loadProjects(); }}
         />

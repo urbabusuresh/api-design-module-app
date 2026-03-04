@@ -2,53 +2,182 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  background-color: #0F172A; /* dark-900 */
-  color: #fff;
+/* Premium Midnight Blue Identity */
+:root {
+  --brand-red: #ef4444;
+  --brand-red-deep: #991b1b;
+  --bg-dark: #020617;
+  --bg-dark-elevated: #0f172a;
+  --border-dark: #1e293b;
 }
 
-/* Animated gradient border for featured cards */
+body {
+  background-color: var(--bg-dark);
+  color: #f1f5f9;
+}
+
 @layer utilities {
-  .animate-fade-in-up {
-    animation: fadeInUp 0.4s ease-out;
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
   }
 
   .scrollbar-thin {
     scrollbar-width: thin;
     scrollbar-color: #334155 transparent;
   }
+
   .scrollbar-thin::-webkit-scrollbar {
-    width: 4px;
-    height: 4px;
+    width: 6px;
+    height: 6px;
   }
+
   .scrollbar-thin::-webkit-scrollbar-track {
     background: transparent;
   }
+
   .scrollbar-thin::-webkit-scrollbar-thumb {
     background: #334155;
-    border-radius: 2px;
+    border-radius: 10px;
   }
 
-  /* Shimmer loading skeleton */
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: #475569;
+  }
+
   .shimmer-bg {
-    background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+    background: linear-gradient(90deg, #0f172a 25%, #1e293b 50%, #0f172a 75%);
     background-size: 200% 100%;
     animation: shimmer 1.5s linear infinite;
   }
 
-  /* Gradient text */
-  .gradient-text {
-    background: linear-gradient(135deg, #818cf8 0%, #c084fc 50%, #38bdf8 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+  .glass-card {
+    background: rgba(15, 23, 42, 0.7);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(148, 163, 184, 0.1);
+    box-shadow: 0 8px 32px -8px rgba(0, 0, 0, 0.5);
   }
 
-  /* Glass card effect */
-  .glass-card {
-    background: rgba(30, 41, 59, 0.6);
-    backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+  .logo-ai-highlight {
+    animation: ai-pulse 2s infinite ease-in-out;
+    text-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+  }
+}
+
+/* Global Overrides for Dark Mode - Deep Blue Slate */
+.bg-slate-950 {
+  background-color: #020617 !important;
+}
+
+.bg-slate-900 {
+  background-color: #030712 !important;
+}
+
+.bg-slate-900\/90 {
+  background-color: rgba(3, 7, 18, 0.9) !important;
+}
+
+.bg-slate-900\/80 {
+  background-color: rgba(3, 7, 18, 0.8) !important;
+}
+
+.bg-slate-900\/50 {
+  background-color: rgba(3, 7, 18, 0.5) !important;
+}
+
+.border-slate-800 {
+  border-color: #1e293b !important;
+}
+
+.border-slate-800\/80 {
+  border-color: rgba(30, 41, 59, 0.8) !important;
+}
+
+/* Dashboard Sidebars & Headers */
+.aside-premium {
+  background: linear-gradient(to bottom, #030712, #020617);
+}
+
+/* Light Theme - Ocean Blue Aesthetic */
+html.light-theme {
+  --bg-primary: #f0f7ff;
+  --bg-secondary: #ffffff;
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --border-color: #cbd5e1;
+}
+
+html.light-theme body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+html.light-theme .bg-slate-950 {
+  background-color: #f0f7ff !important;
+}
+
+html.light-theme .bg-slate-900,
+html.light-theme .bg-slate-900\/90,
+html.light-theme .bg-slate-900\/80 {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.05);
+}
+
+html.light-theme .bg-slate-800,
+html.light-theme .hover\:bg-slate-800:hover,
+html.light-theme .hover\:bg-slate-800\/50:hover {
+  background-color: #e2eefb !important;
+}
+
+html.light-theme .border-slate-800,
+html.light-theme .border-slate-800\/80,
+html.light-theme .border-slate-800\/60 {
+  border-color: #e2eaf3 !important;
+}
+
+html.light-theme .text-white,
+html.light-theme .text-slate-100 {
+  color: #1e293b !important;
+}
+
+html.light-theme .text-slate-300,
+html.light-theme .text-slate-400 {
+  color: #475569 !important;
+}
+
+html.light-theme input,
+html.light-theme textarea,
+html.light-theme select {
+  background-color: #ffffff;
+  color: #0f172a;
+  border-color: #cbd5e1;
+}
+
+@keyframes ai-pulse {
+
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    filter: drop-shadow(0 0 2px rgba(239, 68, 68, 0.6));
+  }
+
+  50% {
+    opacity: 0.85;
+    transform: scale(1.05);
+    filter: drop-shadow(0 0 10px rgba(239, 68, 68, 0.8));
+  }
+}
+
+@keyframes float {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-10px);
   }
 }
 
@@ -57,6 +186,7 @@ body {
     opacity: 0;
     transform: translateY(16px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -64,72 +194,23 @@ body {
 }
 
 @keyframes shimmer {
-  from { background-position: -200% 0; }
-  to { background-position: 200% 0; }
+  from {
+    background-position: -200% 0;
+  }
+
+  to {
+    background-position: 200% 0;
+  }
 }
 
-/* Light theme overrides */
-html.light-theme {
-  --bg-primary: #f8fafc;
-  --bg-secondary: #f1f5f9;
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --border-color: #e2e8f0;
-}
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
 
-html.light-theme body {
-  background-color: #f8fafc;
-  color: #0f172a;
-}
-
-html.light-theme .bg-slate-950 {
-  background-color: #f8fafc !important;
-}
-
-html.light-theme .bg-slate-900 {
-  background-color: #f1f5f9 !important;
-}
-
-html.light-theme .bg-slate-800 {
-  background-color: #e2e8f0 !important;
-}
-
-html.light-theme .border-slate-800 {
-  border-color: #cbd5e1 !important;
-}
-
-html.light-theme .border-slate-700 {
-  border-color: #94a3b8 !important;
-}
-
-html.light-theme .text-white {
-  color: #0f172a !important;
-}
-
-html.light-theme .text-slate-300 {
-  color: #334155 !important;
-}
-
-html.light-theme .text-slate-400 {
-  color: #475569 !important;
-}
-
-html.light-theme .text-slate-500 {
-  color: #64748b !important;
-}
-
-html.light-theme .text-slate-600 {
-  color: #475569 !important;
-}
-
-html.light-theme .bg-slate-900\/50 {
-  background-color: rgba(241, 245, 249, 0.5) !important;
-}
-
-html.light-theme input,
-html.light-theme textarea,
-html.light-theme select {
-  background-color: #f8fafc;
-  color: #0f172a;
-  border-color: #cbd5e1;
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }

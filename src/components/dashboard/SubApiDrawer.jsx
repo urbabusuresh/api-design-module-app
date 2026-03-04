@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
     Plus, Trash2, Lock, CheckCircle, Laptop, Save, X,
-    FileText, Box, Database, Share2, MessageSquare, GitBranch, Activity
+    FileText, Box, Database, Share2, MessageSquare, GitBranch, Activity, Info
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import DesignMapper from '../DesignMapper.jsx';
@@ -9,6 +9,7 @@ import { SwaggerDownstreamForm } from './SwaggerDownstreamForm';
 import { WsdlDownstreamForm } from './WsdlDownstreamForm';
 import { AdvancedApiTester } from './AdvancedApiTester';
 import ReactMarkdown from 'react-markdown';
+import { HttpCodeInfoDrawer, FLAT_HTTP_CODES as HTTP_CODES } from './HttpCodeInfoDrawer.jsx';
 
 // Lazy markdown preview component for remarks
 function RemarksPreview({ content }) {
@@ -20,6 +21,7 @@ export function SubApiDrawer({ api, project, onClose, onSave, services = [], all
     const [localApi, setLocalApi] = useState(JSON.parse(JSON.stringify(api)));
     const [activeTab, setActiveTab] = useState(api.initialTab || 'design');
     const [bodyFormat, setBodyFormat] = useState(api.bodyFormat || (api.request_body?.includes('<?xml') ? 'xml' : 'json'));
+    const [isHttpInfoOpen, setIsHttpInfoOpen] = useState(false);
 
     const tabs = [
         { id: 'design', label: 'Design', icon: FileText },
@@ -277,13 +279,43 @@ export function SubApiDrawer({ api, project, onClose, onSave, services = [], all
                             <div>
                                 <div className="flex justify-between items-center mb-2">
                                     <label className="text-xs font-bold text-slate-500 uppercase">Headers</label>
+                                    <button
+                                        onClick={() => setLocalApi({ ...localApi, headers: [...(localApi.headers || []), { key: '', value: '' }] })}
+                                        className="flex items-center space-x-1.5 px-2.5 py-1 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded text-xs font-bold transition-colors"
+                                    >
+                                        <Plus className="w-3.5 h-3.5" /> <span>Add Header</span>
+                                    </button>
                                 </div>
                                 <div className="bg-slate-900 rounded-lg border border-slate-700 overflow-hidden">
                                     {(!localApi.headers || localApi.headers.length === 0) && <div className="p-3 text-xs text-slate-500 text-center">No headers defined</div>}
                                     {(localApi.headers || []).map((h, i) => (
-                                        <div key={i} className="flex border-b border-slate-800 last:border-0 p-2 text-sm">
-                                            <div className="w-1/3 font-mono text-slate-400">{h.key}</div>
-                                            <div className="flex-1 font-mono text-slate-200">{h.value}</div>
+                                        <div key={i} className="flex border-b border-slate-800 last:border-0 p-2 text-sm gap-2">
+                                            <input
+                                                value={h.key}
+                                                onChange={e => {
+                                                    const newHeaders = [...localApi.headers];
+                                                    newHeaders[i].key = e.target.value;
+                                                    setLocalApi({ ...localApi, headers: newHeaders });
+                                                }}
+                                                placeholder="Key"
+                                                className="w-1/3 bg-slate-950 border border-slate-800 rounded px-2 py-1.5 font-mono text-slate-300 outline-none focus:border-indigo-500 text-xs"
+                                            />
+                                            <input
+                                                value={h.value}
+                                                onChange={e => {
+                                                    const newHeaders = [...localApi.headers];
+                                                    newHeaders[i].value = e.target.value;
+                                                    setLocalApi({ ...localApi, headers: newHeaders });
+                                                }}
+                                                placeholder="Value"
+                                                className="flex-1 bg-slate-950 border border-slate-800 rounded px-2 py-1.5 font-mono text-slate-300 outline-none focus:border-indigo-500 text-xs"
+                                            />
+                                            <button
+                                                onClick={() => setLocalApi({ ...localApi, headers: localApi.headers.filter((_, idx) => idx !== i) })}
+                                                className="p-1 text-slate-500 hover:text-red-400 transition-colors"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
                                         </div>
                                     ))}
                                 </div>
@@ -291,28 +323,125 @@ export function SubApiDrawer({ api, project, onClose, onSave, services = [], all
                         </div>
                     )}
 
-                    {activeTab === 'response' && (
-                        <div className="space-y-6 animate-fade-in">
-                            {(localApi.responses || []).length === 0 && <div className="text-center py-6 border border-dashed border-slate-800 rounded-lg text-xs text-slate-500">No responses defined</div>}
-                            {(localApi.responses || []).map((resp, idx) => (
-                                <div key={idx} className="bg-slate-900 border border-slate-700 rounded-lg overflow-hidden">
-                                    <div className="px-4 py-2 border-b border-slate-800 flex justify-between items-center bg-slate-800/50">
-                                        <div className="flex items-center space-x-3">
-                                            <span className={`text-xs font-bold px-2 py-0.5 rounded ${resp.code < 300 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>{resp.code}</span>
-                                            <span className="text-sm font-medium text-slate-300">{resp.description}</span>
-                                        </div>
-                                    </div>
-                                    <div className="p-0">
-                                        <textarea
-                                            readOnly
-                                            value={resp.body}
-                                            className="w-full bg-slate-950 p-4 text-xs font-mono text-blue-300 h-32 resize-none outline-none border-none"
-                                        />
+                    {activeTab === 'response' && (() => {
+                        const safeResponses = Array.isArray(localApi.responses)
+                            ? localApi.responses
+                            : Object.entries(localApi.responses || {}).map(([code, val]) => ({
+                                code,
+                                description: val?.description || '',
+                                body: typeof val === 'string' ? val : JSON.stringify(val, null, 2),
+                                format: val?.format || (typeof val === 'string' && val.includes('<?xml') ? 'xml' : 'json')
+                            }));
+
+                        const handleUpdateResponse = (idx, field, value) => {
+                            const newResponses = [...safeResponses];
+                            newResponses[idx][field] = value;
+                            setLocalApi({ ...localApi, responses: newResponses });
+                        };
+
+                        const handleRemoveResponse = (idx) => {
+                            setLocalApi({ ...localApi, responses: safeResponses.filter((_, i) => i !== idx) });
+                        };
+
+                        const handleAddResponse = () => {
+                            setLocalApi({ ...localApi, responses: [...safeResponses, { code: '200', description: 'OK', body: '' }] });
+                        };
+
+                        return (
+                            <div className="space-y-6 animate-fade-in">
+                                <div className="flex justify-between items-center bg-slate-900/50 p-2 rounded-xl border border-slate-800">
+                                    <button
+                                        onClick={() => setIsHttpInfoOpen(true)}
+                                        className="flex items-center space-x-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold transition-all border border-slate-700 hover:border-slate-600"
+                                    >
+                                        <Info className="w-4 h-4 text-indigo-400" /> <span>HTTP Info Reference</span>
+                                    </button>
+                                    <div className="flex justify-end gap-2">
+                                        <button
+                                            onClick={() => setLocalApi({ ...localApi, responses: [...safeResponses, { code: '200', description: 'OK', format: 'json', body: '{\n  "status": "success"\n}' }] })}
+                                            className="flex items-center space-x-1.5 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-lg text-[10px] font-bold transition-all"
+                                        >
+                                            <Plus className="w-3.5 h-3.5" /> <span>Add Success (200)</span>
+                                        </button>
+                                        <button
+                                            onClick={() => setLocalApi({ ...localApi, responses: [...safeResponses, { code: '400', description: 'Bad Request', format: 'json', body: '{\n  "error": "Bad Request",\n  "message": "Invalid input parameters"\n}' }] })}
+                                            className="flex items-center space-x-1.5 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 rounded-lg text-[10px] font-bold transition-all"
+                                        >
+                                            <Plus className="w-3.5 h-3.5" /> <span>Add Bad Request (400)</span>
+                                        </button>
+                                        <button
+                                            onClick={() => setLocalApi({ ...localApi, responses: [...safeResponses, { code: '500', description: 'Internal Server Error', format: 'json', body: '{\n  "error": "Internal Server Error",\n  "message": "An unexpected error occurred"\n}' }] })}
+                                            className="flex items-center space-x-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-lg text-[10px] font-bold transition-all"
+                                        >
+                                            <Plus className="w-3.5 h-3.5" /> <span>Add Error (500)</span>
+                                        </button>
+                                        <button
+                                            onClick={() => setLocalApi({ ...localApi, responses: [...safeResponses, { code: '200', description: 'OK', format: 'json', body: '' }] })}
+                                            className="flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold shadow-lg shadow-indigo-500/20 transition-all active:scale-95 ml-2"
+                                        >
+                                            <Plus className="w-4 h-4" /> <span>Custom Response</span>
+                                        </button>
                                     </div>
                                 </div>
-                            ))}
-                        </div>
-                    )}
+                                {safeResponses.length === 0 && <div className="text-center py-6 border border-dashed border-slate-800 rounded-lg text-xs text-slate-500">No responses defined</div>}
+                                {safeResponses.map((resp, idx) => (
+                                    <div key={idx} className="bg-slate-900 border border-slate-700 rounded-lg overflow-hidden group">
+                                        <div className="px-4 py-2 border-b border-slate-800 flex justify-between items-center bg-slate-800/50 flex-wrap gap-2">
+                                            <div className="flex items-center space-x-3 flex-1">
+                                                <input
+                                                    list="http-codes-list"
+                                                    value={resp.code}
+                                                    onChange={e => {
+                                                        const code = e.target.value;
+                                                        const defaultDesc = HTTP_CODES.find(c => c.code === code)?.message || 'Custom/Unknown Response';
+                                                        const newResponses = [...safeResponses];
+                                                        newResponses[idx].code = code;
+                                                        newResponses[idx].description = defaultDesc;
+                                                        setLocalApi({ ...localApi, responses: newResponses });
+                                                    }}
+                                                    placeholder="Code (e.g. 200)"
+                                                    className="w-24 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs font-bold text-slate-200 outline-none focus:border-indigo-500"
+                                                />
+                                                <datalist id="http-codes-list">
+                                                    {HTTP_CODES.map(c => <option key={c.code} value={c.code}>{c.message}</option>)}
+                                                </datalist>
+                                                <input
+                                                    value={resp.description}
+                                                    readOnly
+                                                    placeholder="Description"
+                                                    className="flex-1 bg-slate-900 border border-slate-800 rounded px-2 py-1 text-sm font-medium text-slate-500 outline-none cursor-not-allowed"
+                                                />
+                                                <select
+                                                    value={resp.format || 'json'}
+                                                    onChange={e => handleUpdateResponse(idx, 'format', e.target.value)}
+                                                    className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-xs font-bold text-slate-300 outline-none focus:border-indigo-500 cursor-pointer"
+                                                >
+                                                    <option value="json">JSON</option>
+                                                    <option value="xml">XML</option>
+                                                    <option value="text">Text</option>
+                                                    <option value="html">HTML</option>
+                                                </select>
+                                            </div>
+                                            <button
+                                                onClick={() => handleRemoveResponse(idx)}
+                                                className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-400/10 rounded-md transition-colors"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                        <div className="p-0">
+                                            <textarea
+                                                value={resp.body}
+                                                onChange={e => handleUpdateResponse(idx, 'body', e.target.value)}
+                                                placeholder={resp.format === 'xml' ? '<?xml version="1.0"?>\n<response></response>' : (resp.format === 'json' ? '{\n  "key": "value"\n}' : 'Response body...')}
+                                                className={`w-full bg-slate-950 p-4 text-xs font-mono h-32 resize-none outline-none border-none focus:ring-1 focus:ring-inset focus:ring-indigo-500/50 ${resp.format === 'json' ? 'text-blue-300' : (resp.format === 'xml' ? 'text-amber-100' : 'text-slate-300')}`}
+                                            />
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        );
+                    })()}
 
                     {activeTab === 'downstream' && (
                         <DownstreamEditor localApi={localApi} setLocalApi={setLocalApi} projectSettings={projectSettings} allApis={allApis} modules={modules} />
@@ -385,6 +514,7 @@ export function SubApiDrawer({ api, project, onClose, onSave, services = [], all
                     )}
                 </div>
             </div>
+            <HttpCodeInfoDrawer isOpen={isHttpInfoOpen} onClose={() => setIsHttpInfoOpen(false)} />
         </div>
     );
 }

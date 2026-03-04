@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Activity, CheckCircle, AlertCircle, Clock, RefreshCw, ArrowRight, Globe } from 'lucide-react';
 import { api } from '../../api';
 import toast from 'react-hot-toast';
+import ConfirmModal from '../dashboard/ConfirmModal.jsx';
 
 const STATUS_CONFIG = {
     PUBLISHED: { color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20', icon: CheckCircle },
@@ -38,6 +39,7 @@ export default function DeploymentSummary({ project }) {
     const [targetProjectId, setTargetProjectId] = useState('');
     const [allProjects, setAllProjects] = useState([]);
     const [results, setResults] = useState({}); // apiId -> { status, message }
+    const [confirmConfig, setConfirmConfig] = useState(null); // { title, message, onConfirm, type }
 
     useEffect(() => {
         api.getProjects().then(list => {
@@ -61,33 +63,44 @@ export default function DeploymentSummary({ project }) {
     });
 
     const handleSmartLaunch = async (wso2Api) => {
-        if (!confirm(`Smart Launch "${wso2Api.name}"? This will create, document and publish the API in the target WSO2 environment.`)) return;
-        setLoading(true);
-        try {
-            const res = await api.smartLaunchWso2Api(project.id, wso2Api.id);
-            setResults(prev => ({ ...prev, [wso2Api.id]: { ok: true, message: `Launched: ${res.status}` } }));
-        } catch (e) {
-            setResults(prev => ({ ...prev, [wso2Api.id]: { ok: false, message: e.message } }));
-        } finally {
-            setLoading(false);
-        }
+        setConfirmConfig({
+            title: 'Smart Launch',
+            message: `Smart Launch "${wso2Api.name}"? This will create, document and publish the API in the target WSO2 environment.`,
+            onConfirm: async () => {
+                setLoading(true);
+                try {
+                    const res = await api.smartLaunchWso2Api(project.id, wso2Api.id);
+                    setResults(prev => ({ ...prev, [wso2Api.id]: { ok: true, message: `Launched: ${res.status}` } }));
+                } catch (e) {
+                    setResults(prev => ({ ...prev, [wso2Api.id]: { ok: false, message: e.message } }));
+                } finally {
+                    setLoading(false);
+                }
+            },
+            type: 'primary'
+        });
     };
 
     const handlePromote = async (wso2Api) => {
         if (!targetProjectId) { toast.error('Select a target environment first.'); return; }
-        if (!confirm(`Promote "${wso2Api.name}" to selected environment?`)) return;
-        setLoading(true);
-        try {
-            // wso2_id is set for APIs fetched from WSO2; for composite operation IDs the
-            // format is "<wso2ApiId>_op_<index>", so we strip the suffix to get the base API ID.
-            const wso2Id = wso2Api.wso2_id || wso2Api.id.split('_op_')[0];
-            const res = await api.promoteWso2Api(project.id, wso2Id, targetProjectId);
-            setResults(prev => ({ ...prev, [wso2Api.id]: { ok: true, message: `Promoted: ${res.status}` } }));
-        } catch (e) {
-            setResults(prev => ({ ...prev, [wso2Api.id]: { ok: false, message: e.message } }));
-        } finally {
-            setLoading(false);
-        }
+
+        setConfirmConfig({
+            title: 'Promote API',
+            message: `Promote "${wso2Api.name}" to the selected WSO2 environment?`,
+            onConfirm: async () => {
+                setLoading(true);
+                try {
+                    const wso2Id = wso2Api.wso2_id || wso2Api.id.split('_op_')[0];
+                    const res = await api.promoteWso2Api(project.id, wso2Id, targetProjectId);
+                    setResults(prev => ({ ...prev, [wso2Api.id]: { ok: true, message: `Promoted: ${res.status}` } }));
+                } catch (e) {
+                    setResults(prev => ({ ...prev, [wso2Api.id]: { ok: false, message: e.message } }));
+                } finally {
+                    setLoading(false);
+                }
+            },
+            type: 'primary'
+        });
     };
 
     const totalApis = apis.length;
@@ -170,6 +183,19 @@ export default function DeploymentSummary({ project }) {
                     <p className="text-sm">No APIs found in this workspace.</p>
                 </div>
             )}
+
+            {/* Confirmation Modal */}
+            <ConfirmModal
+                isOpen={!!confirmConfig}
+                title={confirmConfig?.title}
+                message={confirmConfig?.message}
+                type={confirmConfig?.type}
+                onConfirm={async () => {
+                    await confirmConfig.onConfirm();
+                    setConfirmConfig(null);
+                }}
+                onCancel={() => setConfirmConfig(null)}
+            />
         </div>
     );
 }

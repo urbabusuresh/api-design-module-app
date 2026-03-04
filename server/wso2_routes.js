@@ -273,8 +273,15 @@ module.exports = (app, pool, wso2Functions) => {
             let config = rows[0].connection_details;
             if (typeof config === 'string') config = JSON.parse(config);
 
-            const history = await getLifecycleHistory(apiId, config);
-            res.json(history);
+            try {
+                const history = await getLifecycleHistory(apiId, config);
+                res.json(history);
+            } catch (wso2Err) {
+                // WSO2 lifecycle-history may not be available for all API types/versions
+                // Return empty history instead of crashing the UI
+                console.warn(`WSO2 lifecycle-history not available for ${apiId}:`, wso2Err.message);
+                res.json({ list: [], count: 0 });
+            }
         } catch (err) {
             console.error("WSO2 Lifecycle History Fetch Error:", err);
             res.status(500).json({ error: err.message });

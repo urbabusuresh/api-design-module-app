@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
+import ConfirmModal from './ConfirmModal.jsx';
+import { EnvVariableManager } from './EnvVariableManager.jsx';
 import {
-    Tag, Share2, Globe, LayoutGrid, Plus, Edit2, Trash2, Code
+    Tag, Share2, Globe, LayoutGrid, Plus, Edit2, Trash2, Code, SlidersHorizontal
 } from 'lucide-react';
 
-export function ProjectSettings({ settings, variables, onUpdate, onUpdateVariables }) {
+export function ProjectSettings({ project, settings, variables, onUpdate, onUpdateVariables }) {
     const [localSettings, setLocalSettings] = useState(settings || { categories: [], channels: [] });
     const [activeTab, setActiveTab] = useState('categories');
     const [promptConfig, setPromptConfig] = useState(null);
+    const [confirmDelete, setConfirmDelete] = useState(null); // { type, val, subType }
 
     const tabs = [
         { id: 'categories', label: 'Categories', icon: Tag },
@@ -14,6 +17,7 @@ export function ProjectSettings({ settings, variables, onUpdate, onUpdateVariabl
         { id: 'marketSegments', label: 'Market Segments', icon: LayoutGrid },
         { id: 'environments', label: 'Environments', icon: Globe },
         { id: 'variables', label: 'Global Variables', icon: Code },
+        { id: 'envContexts', label: 'Env Contexts', icon: SlidersHorizontal },
     ];
 
     // Convert object -> rows for UI
@@ -61,7 +65,12 @@ export function ProjectSettings({ settings, variables, onUpdate, onUpdateVariabl
     };
 
     const deleteItem = (type, val, subType = null) => {
-        if (!confirm(`Are you sure you want to delete "${val}"?`)) return;
+        setConfirmDelete({ type, val, subType });
+    };
+
+    const confirmDeleteAction = () => {
+        if (!confirmDelete) return;
+        const { type, val, subType } = confirmDelete;
 
         setLocalSettings(prev => {
             let upd;
@@ -79,6 +88,7 @@ export function ProjectSettings({ settings, variables, onUpdate, onUpdateVariabl
             onUpdate(upd);
             return upd;
         });
+        setConfirmDelete(null);
     };
 
     const handleConfirmPrompt = (val) => {
@@ -116,30 +126,36 @@ export function ProjectSettings({ settings, variables, onUpdate, onUpdateVariabl
     };
 
     return (
-        <div className="flex-1 flex flex-col h-full overflow-hidden">
-            <div className="p-8 pb-4 shrink-0">
-                <h1 className="text-3xl font-bold text-white mb-2">Project Configuration</h1>
-                <p className="text-slate-400">Manage global list of values (LOVs) and environment mappings.</p>
+        <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-950">
+            {/* Header */}
+            <div className="px-8 pt-6 pb-2 shrink-0 border-b border-slate-800/40 relative z-10">
+                <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-4">
+                    <div>
+                        <h1 className="text-xl font-bold text-white mb-1">Project Configuration</h1>
+                        <p className="text-sm text-slate-500">Manage global list of values (LOVs) and environment mappings.</p>
+                    </div>
+                </div>
+
+                {/* Tabs */}
+                <div className="flex space-x-6 overflow-x-auto no-scrollbar">
+                    {tabs.map(tab => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`flex items-center space-x-2 pb-3 px-1 text-[11px] uppercase tracking-widest font-bold border-b-2 transition-all whitespace-nowrap ${activeTab === tab.id
+                                ? 'border-indigo-500 text-indigo-400'
+                                : 'border-transparent text-slate-500 hover:text-slate-300'
+                                }`}
+                        >
+                            <tab.icon className="w-3.5 h-3.5" />
+                            <span>{tab.label}</span>
+                        </button>
+                    ))}
+                </div>
             </div>
 
-            <div className="px-8 border-b border-slate-800 flex space-x-8 shrink-0">
-                {tabs.map(tab => (
-                    <button
-                        key={tab.id}
-                        onClick={() => setActiveTab(tab.id)}
-                        className={`flex items-center space-x-2 py-4 text-sm font-bold border-b-2 transition-all ${activeTab === tab.id
-                            ? 'border-indigo-500 text-indigo-400'
-                            : 'border-transparent text-slate-500 hover:text-slate-300'
-                            }`}
-                    >
-                        <tab.icon className="w-4 h-4" />
-                        <span>{tab.label}</span>
-                    </button>
-                ))}
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-8">
-                <div className="max-w-4xl animate-fade-in">
+            <div className="flex-1 overflow-y-auto p-8 pt-6 scrollbar-thin">
+                <div className="max-w-4xl animate-fade-in-up">
                     {activeTab === 'categories' && (
                         <SettingsSection title="API Categories" description="Tags used to group APIs (e.g. Mobile, CRM, Billing, VAS)">
                             <div className="flex flex-wrap gap-3">
@@ -333,6 +349,21 @@ export function ProjectSettings({ settings, variables, onUpdate, onUpdateVariabl
                             </div>
                         </SettingsSection>
                     )}
+
+                    {activeTab === 'envContexts' && (
+                        <SettingsSection
+                            title="Environment Context Settings"
+                            description="Configure specific target URLs and properties for each environment (e.g., specific DEV DB URL, PROD backend URL)."
+                        >
+                            <div className="h-[600px] w-full animate-fade-in-up">
+                                <EnvVariableManager
+                                    project={project}
+                                    environments={localSettings.environments || ['DEV', 'SIT', 'UAT', 'PROD']}
+                                    onSaved={onUpdateVariables}
+                                />
+                            </div>
+                        </SettingsSection>
+                    )}
                 </div>
             </div>
 
@@ -342,6 +373,14 @@ export function ProjectSettings({ settings, variables, onUpdate, onUpdateVariabl
                 placeholder={promptConfig?.placeholder}
                 onConfirm={handleConfirmPrompt}
                 onCancel={() => setPromptConfig(null)}
+            />
+
+            <ConfirmModal
+                isOpen={!!confirmDelete}
+                title="Confirm Selection"
+                message={`Are you sure you want to delete "${confirmDelete?.val}"? This will remove it from the project configuration.`}
+                onConfirm={confirmDeleteAction}
+                onCancel={() => setConfirmDelete(null)}
             />
         </div>
     )

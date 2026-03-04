@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Share2, FileText, Lock } from 'lucide-react';
+import { LLDExportModal } from './LLDExportModal.jsx';
 
 const NB_SB_AUTH_COLORS = {
     'None': 'bg-slate-700/50 text-slate-400',
@@ -9,9 +10,11 @@ const NB_SB_AUTH_COLORS = {
     'API Key': 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
 };
 
-export function NbSbMappingView({ project, onExportLLD }) {
+export function NbSbMappingView({ project }) {
     const [filterNb, setFilterNb] = useState('All');
     const [filterSb, setFilterSb] = useState('All');
+    const [filterSystem, setFilterSystem] = useState('All');
+    const [isExportModelOpen, setIsExportModelOpen] = useState(false);
 
     const allApis = project.systems?.flatMap(s =>
         s.rootApis?.flatMap(r => r.subApis?.map(a => ({
@@ -27,6 +30,7 @@ export function NbSbMappingView({ project, onExportLLD }) {
 
     const nbChannels = [...new Set(allApis.flatMap(a => (a.consumers || []).map(c => c.name)))];
     const sbSystems = [...new Set(allApis.flatMap(a => (a.downstream || []).map(d => d.providerSystem || d.name).filter(Boolean)))];
+    const internalSystems = [...new Set(allApis.map(a => a.systemName).filter(Boolean))];
 
     const authTypeCounts = {};
     allApis.forEach(a => {
@@ -39,6 +43,7 @@ export function NbSbMappingView({ project, onExportLLD }) {
     const filteredApis = mappedApis.filter(a => {
         if (filterNb !== 'All' && !(a.consumers || []).some(c => c.name === filterNb)) return false;
         if (filterSb !== 'All' && !(a.downstream || []).some(d => (d.providerSystem || d.name) === filterSb)) return false;
+        if (filterSystem !== 'All' && a.systemName !== filterSystem) return false;
         return true;
     });
 
@@ -53,11 +58,11 @@ export function NbSbMappingView({ project, onExportLLD }) {
                     <p className="text-slate-400 text-sm mt-1">Northbound consumer to southbound provider mapping with authentication details</p>
                 </div>
                 <button
-                    onClick={onExportLLD}
+                    onClick={() => setIsExportModelOpen(true)}
                     className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-500/20 transition-all active:scale-95"
                 >
                     <FileText className="w-4 h-4" />
-                    <span>Export LLD JSON</span>
+                    <span>Export Document</span>
                 </button>
             </div>
 
@@ -96,6 +101,12 @@ export function NbSbMappingView({ project, onExportLLD }) {
                 >
                     <option value="All">All NB Channels</option>
                     {nbChannels.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <select value={filterSystem} onChange={e => setFilterSystem(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-300 outline-none focus:border-indigo-500"
+                >
+                    <option value="All">All Systems</option>
+                    {internalSystems.map(s => <option key={s} value={s}>{s}</option>)}
                 </select>
                 <select value={filterSb} onChange={e => setFilterSb(e.target.value)}
                     className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-xs text-slate-300 outline-none focus:border-indigo-500"
@@ -186,6 +197,13 @@ export function NbSbMappingView({ project, onExportLLD }) {
                     </div>
                 </div>
             )}
+
+            <LLDExportModal
+                isOpen={isExportModelOpen}
+                onClose={() => setIsExportModelOpen(false)}
+                apis={mappedApis}
+                projectName={project?.name || 'API_Project'}
+            />
         </div>
     );
 }

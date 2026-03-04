@@ -123,6 +123,9 @@ export const api = {
     // ── WSO2 ──────────────────────────────────────────────────────────────
     publishToWso2: (apiId) => apiClient.post('/wso2/publish', { apiId }),
 
+    publishToWso2Advanced: (data) =>
+        apiClient.post(`/wso2/project/${data.targetProjectId}/publish-advanced`, data),
+
     importWso2Project: () => apiClient.post('/wso2/import', {}),
 
     createWso2Project: (data) => apiClient.post('/wso2/project', data),

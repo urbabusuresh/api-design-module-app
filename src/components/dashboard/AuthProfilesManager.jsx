@@ -4,11 +4,13 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api } from '../../api';
+import ConfirmModal from './ConfirmModal.jsx';
 
 export function AuthProfilesManager({ project, onRefresh }) {
     const [profiles, setProfiles] = useState(project.authProfiles || []);
     const [isSaving, setIsSaving] = useState(false);
     const [editingProfile, setEditingProfile] = useState(null);
+    const [confirmDelete, setConfirmDelete] = useState(null); // id or profile object
     const initialProfileState = {
         name: '',
         type: 'Bearer',
@@ -77,12 +79,19 @@ export function AuthProfilesManager({ project, onRefresh }) {
     };
 
     const handleDelete = async (id) => {
-        if (!confirm("Are you sure?")) return;
+        setConfirmDelete(id);
+    };
+
+    const confirmDeleteAction = async () => {
+        if (!confirmDelete) return;
         try {
-            await api.deleteAuthProfile(id);
+            await api.deleteAuthProfile(confirmDelete);
             onRefresh();
+            toast.success("Profile deleted");
         } catch (e) {
             toast.error("Failed to delete profile");
+        } finally {
+            setConfirmDelete(null);
         }
     };
 
@@ -173,7 +182,7 @@ export function AuthProfilesManager({ project, onRefresh }) {
                                     <button
                                         onClick={() => handleOpenEdit(profile)}
                                         title="Edit Profile"
-                                        className="text-slate-600 hover:text-indigo-400 transition-colors p-2"
+                                        className="text-slate-600 hover:text-blue-400 transition-colors p-2"
                                     >
                                         <Edit2 className="w-4 h-4" />
                                     </button>
@@ -201,8 +210,8 @@ export function AuthProfilesManager({ project, onRefresh }) {
                                 )}
                                 {profile.linkedModuleId && (
                                     <div className="mt-2 pt-2 border-t border-slate-800/50 flex items-center gap-2">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
-                                        <span className="text-[9px] font-bold text-indigo-400 uppercase tracking-tighter">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                                        <span className="text-[9px] font-bold text-blue-400 uppercase tracking-tighter">
                                             Linked to Module: {project.modules?.find(m => m.id === profile.linkedModuleId)?.name || 'Unknown'}
                                         </span>
                                     </div>
@@ -230,7 +239,7 @@ export function AuthProfilesManager({ project, onRefresh }) {
                                 </div>
                                 <div>
                                     <h3 className="text-lg font-bold text-white">{editingProfile ? 'Edit Auth Profile' : 'New Auth Profile'}</h3>
-                                    <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest">RAPTR DXP SECURITY ENGINE</p>
+                                    <p className="text-[10px] text-slate-500 uppercase font-bold tracking-[0.2em]"><span className="text-red-700 font-extrabold">KNOT</span><span className="text-red-500 font-bold"><span className="logo-ai-highlight inline-block">A</span>P<span className="logo-ai-highlight inline-block">I</span></span> Security Engine</p>
                                 </div>
                             </div>
                             <button onClick={() => setIsSaving(false)} className="text-slate-500 hover:text-white p-2 hover:bg-slate-800 rounded-xl transition-all"><X className="w-6 h-6" /></button>
@@ -304,10 +313,10 @@ export function AuthProfilesManager({ project, onRefresh }) {
                             <div className="pt-8 border-t border-slate-800 space-y-6">
                                 <div className="flex items-center justify-between">
                                     <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center gap-2">
-                                        <Layers className="w-4 h-4 text-indigo-400" />
+                                        <Layers className="w-4 h-4 text-blue-400" />
                                         Dynamic Token Resolution
                                     </h4>
-                                    <div className="px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 text-[9px] font-bold border border-indigo-500/20 uppercase">Advanced</div>
+                                    <div className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[9px] font-bold border border-blue-500/20 uppercase">Advanced</div>
                                 </div>
                                 <div className="grid grid-cols-1 gap-6">
                                     <div className="space-y-2">
@@ -329,7 +338,7 @@ export function AuthProfilesManager({ project, onRefresh }) {
                                                     setModuleApis([]);
                                                 }
                                             }}
-                                            className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs text-indigo-300 font-bold outline-none focus:border-indigo-500 appearance-none shadow-inner"
+                                            className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs text-blue-300 font-bold outline-none focus:border-blue-500 appearance-none shadow-inner"
                                         >
                                             <option value="">No Module Link (Static Only)</option>
                                             {project.modules?.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -341,7 +350,7 @@ export function AuthProfilesManager({ project, onRefresh }) {
                                             value={formData.authApiId}
                                             onChange={e => setFormData({ ...formData, authApiId: e.target.value })}
                                             disabled={!formData.linkedModuleId || loadingApis}
-                                            className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs text-white font-bold outline-none focus:border-indigo-500 disabled:opacity-30 appearance-none shadow-inner"
+                                            className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs text-white font-bold outline-none focus:border-blue-500 disabled:opacity-30 appearance-none shadow-inner"
                                         >
                                             <option value="">-- Select Token Exchange Endpoint --</option>
                                             {moduleApis.filter(a => a.is_auth_api).map(a => <option key={a.id} value={a.id}>{a.api_name}</option>)}
@@ -353,13 +362,13 @@ export function AuthProfilesManager({ project, onRefresh }) {
                                         </p>
                                     )}
                                     {formData.authApiId && (
-                                        <div className="space-y-2 bg-indigo-500/5 p-4 rounded-xl border border-indigo-500/10 animate-fade-in">
-                                            <label className="block text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2">Token Projection (JSON Path)</label>
+                                        <div className="space-y-2 bg-blue-500/5 p-4 rounded-xl border border-blue-500/10 animate-fade-in">
+                                            <label className="block text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-2">Token Projection (JSON Path)</label>
                                             <input
                                                 value={formData.tokenPath}
                                                 onChange={e => setFormData({ ...formData, tokenPath: e.target.value })}
                                                 placeholder="access_token"
-                                                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs font-mono text-indigo-400 outline-none focus:border-indigo-500"
+                                                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs font-mono text-blue-400 outline-none focus:border-blue-500"
                                             />
                                             <p className="text-[9px] text-slate-500 mt-2 font-medium italic">Example: data.auth.token or access_token</p>
                                         </div>
@@ -372,7 +381,7 @@ export function AuthProfilesManager({ project, onRefresh }) {
                             <button
                                 onClick={() => handleTestProfile()}
                                 disabled={!formData.authApiId}
-                                className="px-5 py-2.5 text-[10px] font-black uppercase text-indigo-400 border border-indigo-400/30 rounded-xl hover:bg-indigo-400/10 transition-all disabled:opacity-30 flex items-center gap-2"
+                                className="px-5 py-2.5 text-[10px] font-black uppercase text-blue-400 border border-blue-400/30 rounded-xl hover:bg-blue-400/10 transition-all disabled:opacity-30 flex items-center gap-2"
                             >
                                 <Play className="w-4 h-4" /> Test Handshake
                             </button>
@@ -387,6 +396,14 @@ export function AuthProfilesManager({ project, onRefresh }) {
                 </div>
             )}
 
+            {/* Confirmation Modal */}
+            <ConfirmModal
+                isOpen={!!confirmDelete}
+                title="Delete Auth Profile"
+                message="Are you sure you want to delete this authentication profile? APIs using this profile for testing may fail to authenticate."
+                onConfirm={confirmDeleteAction}
+                onCancel={() => setConfirmDelete(null)}
+            />
         </div>
     );
 }

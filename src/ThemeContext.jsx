@@ -1,14 +1,14 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
-const ThemeContext = createContext({ theme: 'dark', toggleTheme: () => {} });
+const ThemeContext = createContext({ theme: 'dark', toggleTheme: () => { } });
 
 export function ThemeProvider({ children }) {
     const [theme, setTheme] = useState(() => {
-        try { return localStorage.getItem('raptr_theme') || 'dark'; } catch { return 'dark'; }
+        try { return localStorage.getItem('knotapi_theme') || 'dark'; } catch { return 'dark'; }
     });
 
     useEffect(() => {
-        try { localStorage.setItem('raptr_theme', theme); } catch {}
+        try { localStorage.setItem('knotapi_theme', theme); } catch { }
         document.documentElement.setAttribute('data-theme', theme);
         if (theme === 'light') {
             document.documentElement.classList.remove('dark-theme');

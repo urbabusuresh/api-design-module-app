@@ -231,10 +231,22 @@ async function publishApiToWso2(apiData, downstreamUrl) {
     }
 }
 
-module.exports = {
-    publishApiToWso2,
-    listApisFromWso2,
-    getApiSwaggerFromWso2
+
+
+// Helper: Normalize URL into { base, path }
+const normalizeUrl = (rawUrl) => {
+    try {
+        if (!rawUrl) return { base: 'http://localhost:8080', path: '/*' };
+        let urlStr = rawUrl.trim();
+        if (!urlStr.startsWith('http')) urlStr = 'http://' + urlStr;
+        const url = new URL(urlStr);
+        return {
+            base: `${url.protocol}//${url.host}`,
+            path: url.pathname === '/' ? '/*' : url.pathname
+        };
+    } catch (e) {
+        return { base: 'http://localhost:8080', path: '/*' };
+    }
 };
 
 async function listApisFromWso2(config = {}) {
@@ -291,6 +303,54 @@ async function listApisFromWso2(config = {}) {
     }
 }
 
+async function getApiDetails(apiId, config = {}) {
+    const cfg = getSanitizedConfig(config);
+    const token = await getAccessToken(cfg);
+
+    try {
+        const response = await fetch(`${cfg.baseUrl}${cfg.publisherApiUrl}/apis/${apiId}`, {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) {
+            const txt = await response.text();
+            throw new Error(`Get API Details Failed: ${response.status} ${txt}`);
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error(`Error fetching details for API ${apiId}:`, error);
+        throw error;
+    }
+}
+
+async function updateApiDetails(apiId, apiPayload, config = {}) {
+    const cfg = getSanitizedConfig(config);
+    const token = await getAccessToken(cfg);
+
+    try {
+        const response = await fetch(`${cfg.baseUrl}${cfg.publisherApiUrl}/apis/${apiId}`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(apiPayload)
+        });
+
+        if (!response.ok) {
+            const txt = await response.text();
+            throw new Error(`Update API Details Failed: ${response.status} ${txt}`);
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error(`Error updating details for API ${apiId}:`, error);
+        throw error;
+    }
+}
+
 async function getApiSwaggerFromWso2(apiId, config = {}) {
     const cfg = getSanitizedConfig(config);
     const token = await getAccessToken(cfg);
@@ -309,6 +369,39 @@ async function getApiSwaggerFromWso2(apiId, config = {}) {
         return await response.json();
     } catch (error) {
         console.error(`Error fetching Swagger for API ${apiId}:`, error);
+        throw error;
+    }
+}
+
+async function updateApiSwagger(apiId, swaggerContent, config = {}) {
+    const cfg = getSanitizedConfig(config);
+    const token = await getAccessToken(cfg);
+
+    try {
+        const formData = new FormData();
+        const content = typeof swaggerContent === 'string' ? swaggerContent : JSON.stringify(swaggerContent);
+
+        // WSO2 V4 PUT /swagger expects multipart/form-data with "apiDefinition"
+        // In Node 21+, FormData and Blob are available globally.
+        formData.append('apiDefinition', new Blob([content], { type: 'application/json' }));
+
+        const response = await fetch(`${cfg.baseUrl}${cfg.publisherApiUrl}/apis/${apiId}/swagger`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`
+                // Note: Content-Type is set automatically by fetch when body is FormData
+            },
+            body: formData
+        });
+
+        if (!response.ok) {
+            const txt = await response.text();
+            throw new Error(`Update Swagger Failed: ${response.status} ${txt}`);
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error(`Error updating Swagger for API ${apiId}:`, error);
         throw error;
     }
 }
@@ -405,15 +498,7 @@ async function getSubscriptionPolicies(config = {}) {
     }
 }
 
-module.exports = {
-    publishApiToWso2,
-    listApisFromWso2,
-    getApiSwaggerFromWso2,
-    getApiLifecycleState,
-    changeApiLifecycleState,
-    getApiSubscriptions,
-    getSubscriptionPolicies
-};
+
 
 // ============ APPLICATIONS ============
 
@@ -777,40 +862,6 @@ async function getLifecycleHistory(apiId, config = {}) {
     }
 }
 
-module.exports = {
-    publishApiToWso2,
-    listApisFromWso2,
-    getApiSwaggerFromWso2,
-    getApiLifecycleState,
-    changeApiLifecycleState,
-    getApiSubscriptions,
-    getSubscriptionPolicies,
-    // Applications
-    listApplications,
-    createApplication,
-    generateApplicationKeys,
-    subscribeToApi,
-    // API Products
-    listApiProducts,
-    createApiProduct,
-    getApiProductById,
-    // Documentation
-    getApiDocumentation,
-    getDocumentContent,
-    addApiDocumentation,
-    // Policies
-    getThrottlingPolicies,
-    getMediationPolicies,
-    // Certificates
-    getClientCertificates,
-    getEndpointCertificates,
-    // Lifecycle History
-    getLifecycleHistory,
-    // Smart Launch & Promotion
-    smartLaunch,
-    promoteApiToEnv
-};
-
 // ============ SMART LAUNCH ============
 // Creates API, adds default documentation, applies standard policy, then publishes.
 async function smartLaunch(apiData, downstreamUrl, config = {}) {
@@ -818,17 +869,39 @@ async function smartLaunch(apiData, downstreamUrl, config = {}) {
     const token = await getAccessToken(cfg);
 
     // 1. Create the API
-    // Sanitize name: remove all non-alphanumeric characters
-    const apiName = apiData.api_name.replace(/[^a-zA-Z0-9]/g, '');
-    if (!apiName) throw new Error('Smart Launch: API name is empty after sanitization; please use alphanumeric characters in the API name.');
-    const context = `/${apiName.toLowerCase()}`;
-    const version = apiData.api_version || '1.0.0';
+    const rawName = apiData.name || apiData.api_name || 'UnnamedAPI';
+    const apiName = rawName.replace(/[^a-zA-Z0-9]/g, '');
+    if (!apiName) throw new Error('Smart Launch: API name is empty after sanitization; please use alphanumeric characters.');
+
+    const version = apiData.version || apiData.api_version || '1.0.0';
+    const contextPart = apiName.toLowerCase();
+    const context = `/${contextPart}/${version.replace(/\./g, '_')}`;
+
+    // 2. Prepare Endpoint Config
+    // Use the first endpoint or fallback to identify a base URL
+    const { base: targetBase } = normalizeUrl(downstreamUrl);
+
+    // 3. Prepare Operations
+    // WSO2 expects 'target' to be the resource path only (e.g. /users)
+    const operations = apiData.endpoints && apiData.endpoints.length > 0
+        ? apiData.endpoints.map(ep => ({
+            target: normalizeUrl(ep.url).path,
+            verb: (ep.http_method || 'GET').toUpperCase(),
+            authType: 'Application & Application User',
+            throttlingPolicy: 'Unlimited'
+        }))
+        : [{
+            target: normalizeUrl(apiData.url).path,
+            verb: (apiData.http_method || 'GET').toUpperCase(),
+            authType: 'Application & Application User',
+            throttlingPolicy: 'Unlimited'
+        }];
 
     const payload = {
         name: apiName,
-        context,
+        context: context.startsWith('/') ? context : '/' + context,
         version,
-        description: apiData.description || 'Created via Smart Launch',
+        description: apiData.description || 'Created via Smart Launch (RaptrDXP)',
         provider: cfg.username || 'admin',
         lifeCycleStatus: 'CREATED',
         responseCachingEnabled: false,
@@ -840,16 +913,13 @@ async function smartLaunch(apiData, downstreamUrl, config = {}) {
         visibility: 'PUBLIC',
         endpointConfig: {
             endpoint_type: 'http',
-            sandbox_endpoints: { url: downstreamUrl },
-            production_endpoints: { url: downstreamUrl }
+            sandbox_endpoints: { url: targetBase },
+            production_endpoints: { url: targetBase }
         },
-        operations: [{
-            target: apiData.url || '/*',
-            verb: apiData.http_method || 'GET',
-            authType: 'Application & Application User',
-            throttlingPolicy: 'Unlimited'
-        }]
+        operations
     };
+
+    console.log(`[WSO2] Smart Launch Payload:`, JSON.stringify(payload, null, 2));
 
     const createResp = await fetch(`${cfg.baseUrl}${cfg.publisherApiUrl}/apis`, {
         method: 'POST',
@@ -862,6 +932,50 @@ async function smartLaunch(apiData, downstreamUrl, config = {}) {
     }
     const createdApi = await createResp.json();
     const wso2ApiId = createdApi.id;
+
+    // 1.5 UPDATE SWAGGER (OAS) DEFINITION
+    // WSO2 Post /apis doesn't always generate paths in the OAS from the operations array.
+    // We explicitly set the paths in the OAS definition.
+    try {
+        console.log(`[WSO2] Fetching initial Swagger for ${wso2ApiId}...`);
+        const swagger = await getApiSwaggerFromWso2(wso2ApiId, config);
+
+        // Ensure paths object exists
+        if (!swagger.paths) swagger.paths = {};
+
+        // If we have bundled endpoints (Service level), add them to paths
+        if (apiData.endpoints && apiData.endpoints.length > 0) {
+            apiData.endpoints.forEach(ep => {
+                const epInfo = normalizeUrl(ep.url);
+                const path = epInfo.path.startsWith('/') ? epInfo.path : '/' + epInfo.path;
+                const verb = (ep.http_method || 'GET').toLowerCase();
+
+                if (!swagger.paths[path]) swagger.paths[path] = {};
+                swagger.paths[path][verb] = {
+                    responses: { "200": { description: "OK" } },
+                    "x-auth-type": "Application & Application User",
+                    "x-throttling-tier": "Unlimited"
+                };
+            });
+        } else {
+            // Individual endpoint level
+            const epInfo = normalizeUrl(apiData.url);
+            const path = epInfo.path.startsWith('/') ? epInfo.path : '/' + epInfo.path;
+            const verb = (apiData.http_method || 'GET').toLowerCase();
+
+            if (!swagger.paths[path]) swagger.paths[path] = {};
+            swagger.paths[path][verb] = {
+                responses: { "200": { description: "OK" } },
+                "x-auth-type": "Application & Application User",
+                "x-throttling-tier": "Unlimited"
+            };
+        }
+
+        console.log(`[WSO2] Updating Swagger definition with ${Object.keys(swagger.paths).length} paths...`);
+        await updateApiSwagger(wso2ApiId, swagger, config);
+    } catch (swErr) {
+        console.warn(`[WSO2] Swagger update failed (non-fatal):`, swErr.message);
+    }
 
     // 2. Add default documentation
     try {
@@ -889,6 +1003,76 @@ async function smartLaunch(apiData, downstreamUrl, config = {}) {
     const publishStatus = pubResp.ok ? 'Published' : 'Created (Publish Failed)';
 
     return { wso2Id: wso2ApiId, status: publishStatus, context };
+}
+
+// ============ APPEND TO EXISTING API ============
+
+async function appendToExistingWso2Api(wso2ApiId, apiData, config = {}) {
+    const cfg = getSanitizedConfig(config);
+    const token = await getAccessToken(cfg);
+
+    try {
+        // 1. Fetch current API metadata to update its functional "Operations" model
+        console.log(`[WSO2] Fetching API details for ${wso2ApiId}...`);
+        const api = await getApiDetails(wso2ApiId, config);
+
+        // 2. Normalize and prepare new operation
+        const epInfo = normalizeUrl(apiData.url);
+        const path = epInfo.path.startsWith('/') ? epInfo.path : '/' + epInfo.path;
+        const verb = (apiData.http_method || 'GET').toUpperCase();
+
+        // 3. Update the internal operations model (functional resources)
+        if (!api.operations) api.operations = [];
+
+        // Check if operation already exists to avoid duplicates
+        const exists = api.operations.some(op => op.target === path && op.verb === verb);
+        if (!exists) {
+            console.log(`[WSO2] Adding operation ${verb} ${path} to API functional model...`);
+            api.operations.push({
+                target: path,
+                verb: verb,
+                authType: 'Application & Application User',
+                throttlingPolicy: 'Unlimited'
+            });
+
+            // PUT the updated API metadata (essential for Gateway resources)
+            // Strip immutable system fields
+            // eslint-disable-next-line no-unused-vars
+            const { id, createdTime, lastUpdatedTime, lifeCycleStatus, ...updatePayload } = api;
+            await updateApiDetails(wso2ApiId, updatePayload, config);
+        } else {
+            console.log(`[WSO2] Operation ${verb} ${path} already exists in API functional model.`);
+        }
+
+        // 4. Update the Swagger (OAS) definition (documentation & console)
+        console.log(`[WSO2] Fetching Swagger for ${wso2ApiId} to sync documentation...`);
+        const swagger = await getApiSwaggerFromWso2(wso2ApiId, config);
+        if (!swagger.paths) swagger.paths = {};
+
+        const lowVerb = verb.toLowerCase();
+        if (!swagger.paths[path]) swagger.paths[path] = {};
+        swagger.paths[path][lowVerb] = {
+            responses: { "200": { description: "OK" } },
+            "x-auth-type": "Application & Application User",
+            "x-throttling-tier": "Unlimited"
+        };
+
+        await updateApiSwagger(wso2ApiId, swagger, config);
+
+        // 5. Trigger a Lifestyle "Publish" action to ensure the new resource is deployed to the Gateway
+        if (api.lifeCycleStatus === 'PUBLISHED' || api.lifeCycleStatus === 'DEPRECATED') {
+            console.log(`[WSO2] Re-publishing API ${wso2ApiId} to sync gateway resources...`);
+            await fetch(
+                `${cfg.baseUrl}${cfg.publisherApiUrl}/apis/change-lifecycle?apiId=${wso2ApiId}&action=Publish`,
+                { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } }
+            );
+        }
+
+        return { success: true, wso2Id: wso2ApiId, status: 'Updated' };
+    } catch (error) {
+        console.error(`[WSO2] Append failed for API ${wso2ApiId}:`, error);
+        throw error;
+    }
 }
 
 // ============ ENVIRONMENT PROMOTION ============
@@ -935,5 +1119,37 @@ async function promoteApiToEnv(wso2ApiId, sourceConfig, targetConfig) {
 
     return { status: 'Promoted', targetApiId: promoted.id, targetEnv: tgtCfg.baseUrl };
 }
+
+module.exports = {
+    publishApiToWso2,
+    getApiDetails,
+    updateApiDetails,
+    listApisFromWso2,
+    getApiSwaggerFromWso2,
+    updateApiSwagger,
+    getApiLifecycleState,
+    changeApiLifecycleState,
+    getApiSubscriptions,
+    getSubscriptionPolicies,
+    listApplications,
+    createApplication,
+    generateApplicationKeys,
+    subscribeToApi,
+    listApiProducts,
+    createApiProduct,
+    getApiProductById,
+    getApiDocumentation,
+    getDocumentContent,
+    addApiDocumentation,
+    getThrottlingPolicies,
+    getMediationPolicies,
+    getClientCertificates,
+    getEndpointCertificates,
+    getLifecycleHistory,
+    smartLaunch,
+    promoteApiToEnv,
+    appendToExistingWso2Api
+};
+
 
 

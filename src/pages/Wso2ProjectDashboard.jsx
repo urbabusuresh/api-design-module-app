@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
     LayoutGrid, Search, ChevronLeft, Settings, Activity,
-    Globe, Layers, List, Box, GitBranch
+    Globe, Layers, List, Box, GitBranch, Waypoints, Network
 } from 'lucide-react';
 import ApiCard from '../components/wso2/ApiCard.jsx';
 import ApiDetailPanel from '../components/wso2/ApiDetailPanel.jsx';
@@ -12,7 +12,16 @@ import DeploymentSummary from '../components/wso2/DeploymentSummary.jsx';
 import { api } from '../api';
 
 const Wso2ProjectDashboard = ({ project, onBack, onRefresh }) => {
-    const apis = project?.systems?.[0]?.services?.[0]?.subApis || [];
+    const rawApis = project?.systems?.[0]?.services?.[0]?.subApis || [];
+
+    // Normalize: support both old DB shape { api_name, url, wso2_id } and new shape { name, context, id }
+    const apis = rawApis.map(a => ({
+        ...a,
+        name: a.name || a.api_name || 'Unnamed API',
+        url: a.url || a.context || '',
+        id: a.id || a.wso2_id || Math.random().toString(36).slice(2),
+        wso2_id: a.wso2_id || (typeof a.id === 'string' && a.id.includes('_op_') ? a.id.split('_op_')[0] : a.id),
+    }));
 
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedApi, setSelectedApi] = useState(null);
@@ -21,13 +30,13 @@ const Wso2ProjectDashboard = ({ project, onBack, onRefresh }) => {
     const [statusFilter, setStatusFilter] = useState('ALL');
 
     // Group APIs by base API (wso2_id)
-    const groupedApis = apis.reduce((acc, api) => {
-        const baseId = api.wso2_id || api.id.split('_op_')[0];
+    const groupedApis = apis.reduce((acc, a) => {
+        const baseId = a.wso2_id || a.id;
         if (!acc[baseId]) {
-            acc[baseId] = { ...api, operations: [] };
+            acc[baseId] = { ...a, operations: [] };
         }
-        if (api.id.includes('_op_')) {
-            acc[baseId].operations.push(api);
+        if (typeof a.id === 'string' && a.id.includes('_op_')) {
+            acc[baseId].operations.push(a);
         }
         return acc;
     }, {});
@@ -43,11 +52,16 @@ const Wso2ProjectDashboard = ({ project, onBack, onRefresh }) => {
         }
 
         const query = searchQuery.toLowerCase();
-        return filtered.filter(api => {
-            const matchesSearch = api.name.toLowerCase().includes(query) ||
-                api.url.toLowerCase().includes(query) ||
-                api.description?.toLowerCase().includes(query);
-            const matchesStatus = statusFilter === 'ALL' || api.status === statusFilter;
+        return filtered.filter(a => {
+            // Handle both old shape (api_name, url) and new shape (name, context)
+            const displayName = (a.name || a.api_name || '').toLowerCase();
+            const displayUrl = (a.context || a.url || '').toLowerCase();
+            const displayDesc = (a.description || '').toLowerCase();
+            const matchesSearch = !query ||
+                displayName.includes(query) ||
+                displayUrl.includes(query) ||
+                displayDesc.includes(query);
+            const matchesStatus = statusFilter === 'ALL' || a.status === statusFilter;
             return matchesSearch && matchesStatus;
         });
     };
@@ -67,10 +81,10 @@ const Wso2ProjectDashboard = ({ project, onBack, onRefresh }) => {
     return (
         <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
             {/* Sidebar */}
-            <div className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col">
+            <div className="w-64 bg-slate-900/90 border-r border-slate-800 flex flex-col backdrop-blur-xl shrink-0">
                 <div className="p-4 border-b border-slate-800 flex items-center space-x-3">
-                    <div className="w-8 h-8 bg-red-600/20 border border-red-500/30 rounded-lg flex items-center justify-center shadow-lg shadow-red-500/10">
-                        <img src="/wso2-apim.png" alt="WSO2" className="w-5 h-5 object-contain" />
+                    <div className="w-8 h-8 bg-red-600/20 border border-red-500/30 rounded-lg flex items-center justify-center shadow-lg shadow-red-500/20 transition-transform hover:scale-110">
+                        <Activity className="w-5 h-5 text-red-500 animate-pulse" />
                     </div>
                     <div>
                         <h1 className="font-bold text-lg tracking-tight text-white leading-none">WSO2 Portal</h1>
@@ -78,7 +92,7 @@ const Wso2ProjectDashboard = ({ project, onBack, onRefresh }) => {
                     </div>
                 </div>
 
-                <div className="flex-1 p-4 space-y-1">
+                <div className="flex-1 p-4 space-y-1 overflow-y-auto scrollbar-thin">
                     <button onClick={onBack} className="w-full flex items-center space-x-3 px-3 py-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors">
                         <ChevronLeft className="w-4 h-4" />
                         <span className="text-sm font-medium">Back to Projects</span>
@@ -91,7 +105,7 @@ const Wso2ProjectDashboard = ({ project, onBack, onRefresh }) => {
                         className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors ${viewMode === 'services' ? 'bg-red-600/10 text-red-400 border border-red-500/20' : 'text-slate-400 hover:text-white hover:bg-slate-800'
                             }`}
                     >
-                        <Layers className="w-4 h-4" />
+                        <Waypoints className="w-4 h-4" />
                         <span className="text-sm font-bold">Services</span>
                     </button>
 
@@ -100,7 +114,7 @@ const Wso2ProjectDashboard = ({ project, onBack, onRefresh }) => {
                         className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors ${viewMode === 'all-apis' ? 'bg-red-600/10 text-red-400 border border-red-500/20' : 'text-slate-400 hover:text-white hover:bg-slate-800'
                             }`}
                     >
-                        <LayoutGrid className="w-4 h-4" />
+                        <Network className="w-4 h-4" />
                         <span className="text-sm font-bold">All APIs</span>
                     </button>
 
@@ -132,15 +146,13 @@ const Wso2ProjectDashboard = ({ project, onBack, onRefresh }) => {
                     </button>
                 </div>
 
-                <div className="p-4 border-t border-slate-800">
-                    <div className="flex items-center space-x-3 px-3 py-2 bg-slate-800 rounded-lg">
-                        <div className="w-8 h-8 rounded-full bg-red-500 flex items-center justify-center text-xs font-bold text-white shadow-lg shadow-red-500/20">
-                            {project.name.substring(0, 2).toUpperCase()}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                            <div className="text-sm font-bold truncate">{project.name}</div>
-                            <div className="text-[10px] text-red-500 font-bold">Connected</div>
-                        </div>
+                <div className="p-4 border-t border-slate-800 flex items-center space-x-3 hover:bg-white/5 transition-colors cursor-pointer group">
+                    <div className="w-8 h-8 rounded-full bg-red-500 flex items-center justify-center text-[10px] font-black text-white shadow-lg shadow-red-500/20 group-hover:scale-110 transition-transform">
+                        {project.name.substring(0, 2).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <div className="text-sm font-black truncate text-white">{project.name}</div>
+                        <div className="text-[10px] text-red-500 font-extrabold flex items-center gap-1"><Activity className="w-2.5 h-2.5" /> Connected</div>
                     </div>
                 </div>
             </div>

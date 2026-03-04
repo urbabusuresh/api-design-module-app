@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "description": "Enterprise API Design and Testing Dashboard",
-  "author": "RaptrDXP Team",
+  "author": "KnotAPI Team",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -13,41 +13,50 @@
     "build:prod": "vite build",
     "start:prod": "node server/index.js",
     "deploy": "npm run build:prod && npm run start:prod",
-    "electron:dev": "concurrently \"npm run dev\" \"npm run server\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:dev": "concurrently \"npm run dev\" \"npm run server\" \"wait-on http://localhost:6444 && electron .\"",
+    "electron:start": "electron .",
     "electron:build": "npm run build && electron-builder",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "build": {
-    "appId": "com.raptrdxp.dashboard",
-    "productName": "RaptrDXP API Dashboard",
+    "appId": "com.knotapi.dashboard",
+    "productName": "KnotAPI Design Studio",
     "files": [
       "dist/**/*",
       "electron/**/*"
     ],
     "extraResources": [
-      "server/**/*"
+      "server/**/*",
+      "app.env"
     ],
     "directories": {
       "output": "release"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "build/icon.png"
     },
     "npmRebuild": false
   },
   "dependencies": {
     "body-parser": "^2.2.2",
     "cors": "^2.8.5",
+    "docx": "^9.6.0",
     "express": "^5.2.1",
+    "file-saver": "^2.0.5",
+    "jspdf": "^4.2.0",
+    "jspdf-autotable": "^5.0.7",
     "lucide-react": "^0.562.0",
     "mysql2": "^3.16.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-hot-toast": "^2.6.0",
     "react-markdown": "^10.1.0",
-    "swagger-ui-react": "^5.31.0"
+    "react-tooltip": "^5.30.0",
+    "swagger-ui-react": "^5.31.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

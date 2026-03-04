@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { GitBranch, CheckCircle, XCircle, Clock, ArrowRight } from 'lucide-react';
 import { api } from '../../api';
 import toast from 'react-hot-toast';
+import ConfirmModal from '../dashboard/ConfirmModal.jsx';
 
 const LifecycleManager = ({ apiItem, project, onUpdate }) => {
     const [lifecycle, setLifecycle] = useState(null);
@@ -9,6 +10,7 @@ const LifecycleManager = ({ apiItem, project, onUpdate }) => {
     const [loading, setLoading] = useState(true);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [changing, setChanging] = useState(false);
+    const [confirmAction, setConfirmAction] = useState(null); // action string
 
     useEffect(() => {
         loadLifecycle();
@@ -31,29 +33,38 @@ const LifecycleManager = ({ apiItem, project, onUpdate }) => {
     const loadHistory = async () => {
         try {
             setHistoryLoading(true);
-            let targetId = apiItem.wso2_id || apiItem.id.split('_op_')[0];
+            let targetId = apiItem.wso2_id || apiItem.id;
             const data = await api.getWso2LifecycleHistory(project.id, targetId);
-            setHistory(data.list || []);
+            setHistory(Array.isArray(data?.list) ? data.list : []);
         } catch (e) {
-            console.error("Failed to load lifecycle history", e);
+            // lifecycle-history might not be supported on all WSO2 versions — fail silently
+            console.warn("Lifecycle history unavailable:", e.message);
+            setHistory([]);
         } finally {
             setHistoryLoading(false);
         }
     };
 
-    const handleStateChange = async (action) => {
-        if (!confirm(`Are you sure you want to ${action} this API?`)) return;
+    // WSO2 returns transitions as { event, targetState } objects
+    const getEventString = (action) => (typeof action === 'object' ? action.event : action);
 
+    const handleStateChange = (action) => {
+        setConfirmAction(getEventString(action));
+    };
+
+    const confirmStateChange = async () => {
+        if (!confirmAction) return;
         try {
             setChanging(true);
-            let targetId = apiItem.wso2_id || apiItem.id.split('_op_')[0];
-            await api.changeWso2ApiLifecycle(project.id, targetId, action);
+            let targetId = apiItem.wso2_id || apiItem.id;
+            await api.changeWso2ApiLifecycle(project.id, targetId, confirmAction);
             await loadLifecycle();
             if (onUpdate) onUpdate();
         } catch (e) {
             toast.error('Failed to change lifecycle: ' + e.message);
         } finally {
             setChanging(false);
+            setConfirmAction(null);
         }
     };
 
@@ -125,19 +136,29 @@ const LifecycleManager = ({ apiItem, project, onUpdate }) => {
                 <div className="bg-slate-900 rounded-xl p-5 border border-slate-800">
                     <h3 className="text-sm font-bold text-slate-300 uppercase mb-4">Available Actions</h3>
                     <div className="grid gap-3">
-                        {lifecycle.availableTransitions.map((action, idx) => (
-                            <button
-                                key={idx}
-                                onClick={() => handleStateChange(action)}
-                                disabled={changing}
-                                className="flex items-center justify-between p-3 bg-slate-800/50 hover:bg-slate-800 border border-slate-700 hover:border-indigo-500/50 rounded-lg transition-all group disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                <span className="text-sm font-medium text-slate-300 group-hover:text-white">
-                                    {getActionLabel(action)}
-                                </span>
-                                <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-indigo-400 transition-colors" />
-                            </button>
-                        ))}
+                        {lifecycle.availableTransitions.map((action, idx) => {
+                            // WSO2 returns {event, targetState} or plain string
+                            const eventStr = typeof action === 'object' ? action.event : action;
+                            const targetStr = typeof action === 'object' ? action.targetState : '';
+                            return (
+                                <button
+                                    key={idx}
+                                    onClick={() => handleStateChange(action)}
+                                    disabled={changing}
+                                    className="flex items-center justify-between p-3 bg-slate-800/50 hover:bg-slate-800 border border-slate-700 hover:border-indigo-500/50 rounded-lg transition-all group disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    <div className="flex flex-col items-start">
+                                        <span className="text-sm font-medium text-slate-300 group-hover:text-white">
+                                            {getActionLabel(eventStr)}
+                                        </span>
+                                        {targetStr && (
+                                            <span className="text-[10px] text-slate-500 font-mono">→ {targetStr}</span>
+                                        )}
+                                    </div>
+                                    <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-indigo-400 transition-colors" />
+                                </button>
+                            );
+                        })}
                     </div>
                 </div>
             )}
@@ -199,6 +220,15 @@ const LifecycleManager = ({ apiItem, project, onUpdate }) => {
                     )}
                 </div>
             </div>
+
+            {/* Confirmation Modal */}
+            <ConfirmModal
+                isOpen={!!confirmAction}
+                title="API Lifecycle Transition"
+                message={`Are you sure you want to perform "${confirmAction}" on this API? This will change its visibility and status on the WSO2 Gateway.`}
+                onConfirm={confirmStateChange}
+                onCancel={() => setConfirmAction(null)}
+            />
         </div>
     );
 };
