@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
     Plus, Trash2, Lock, CheckCircle, Laptop, Save, X,
-    FileText, Box, Database, Share2, MessageSquare, GitBranch, Activity, Info
+    FileText, Box, Database, Share2, MessageSquare, GitBranch, Activity, Info, Tag, Copy
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import DesignMapper from '../DesignMapper.jsx';
@@ -14,6 +14,46 @@ import { HttpCodeInfoDrawer, FLAT_HTTP_CODES as HTTP_CODES } from './HttpCodeInf
 // Lazy markdown preview component for remarks
 function RemarksPreview({ content }) {
     return <ReactMarkdown>{content}</ReactMarkdown>;
+}
+
+// Tags input component
+function TagsInput({ tags = [], onChange }) {
+    const [inputValue, setInputValue] = useState('');
+
+    const addTag = (value) => {
+        const trimmed = value.trim().toLowerCase().replace(/\s+/g, '-');
+        if (!trimmed || tags.includes(trimmed)) { setInputValue(''); return; }
+        onChange([...tags, trimmed]);
+        setInputValue('');
+    };
+
+    const removeTag = (tag) => onChange(tags.filter(t => t !== tag));
+
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(inputValue); }
+        if (e.key === 'Backspace' && !inputValue && tags.length > 0) removeTag(tags[tags.length - 1]);
+    };
+
+    return (
+        <div className="flex flex-wrap gap-1.5 p-2 bg-slate-900 border border-slate-700 rounded-lg min-h-[40px] focus-within:border-indigo-500 transition-colors">
+            {tags.map(tag => (
+                <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-500/15 border border-indigo-500/30 rounded-md text-[10px] font-bold text-indigo-300">
+                    {tag}
+                    <button onClick={() => removeTag(tag)} className="hover:text-red-400 transition-colors ml-0.5">
+                        <X className="w-2.5 h-2.5" />
+                    </button>
+                </span>
+            ))}
+            <input
+                value={inputValue}
+                onChange={e => setInputValue(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onBlur={() => inputValue && addTag(inputValue)}
+                placeholder={tags.length === 0 ? 'Add tags… (press Enter or comma)' : ''}
+                className="flex-1 min-w-[120px] bg-transparent text-xs text-white outline-none placeholder-slate-600"
+            />
+        </div>
+    );
 }
 
 export function SubApiDrawer({ api, project, onClose, onSave, services = [], allApis = [], modules = [], selectedEnv }) {
@@ -72,6 +112,37 @@ export function SubApiDrawer({ api, project, onClose, onSave, services = [], all
         return () => window.removeEventListener('keydown', handler);
     }, [localApi, localRequestBody, bodyFormat, requestError, onClose]);
 
+    const handleCopyAsCurl = () => {
+        try {
+            const method = localApi.method || 'GET';
+            const url = localApi.url || '/';
+            const headers = (localApi.headers || []).filter(h => h.key);
+            const body = localRequestBody;
+
+            let cmd = `curl -X ${method} '${url}'`;
+            if (bodyFormat === 'json' && !headers.some(h => h.key.toLowerCase() === 'content-type')) {
+                cmd += ` \\\n  -H 'Content-Type: application/json'`;
+            }
+            headers.forEach(h => { cmd += ` \\\n  -H '${h.key}: ${h.value}'`; });
+            if (method !== 'GET' && body && body.trim()) {
+                let isEmptyBody = false;
+                try { const parsed = JSON.parse(body); isEmptyBody = typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).length === 0; } catch (_) { }
+                if (!isEmptyBody) {
+                    const escapedBody = body.replace(/'/g, "'\\''");
+                    cmd += ` \\\n  -d '${escapedBody}'`;
+                }
+            }
+
+            navigator.clipboard.writeText(cmd).then(() => {
+                toast.success('cURL command copied to clipboard!');
+            }).catch(() => {
+                toast.error('Failed to copy to clipboard');
+            });
+        } catch (e) {
+            toast.error('Failed to generate cURL command');
+        }
+    };
+
     return (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-sm transition-opacity" onClick={onClose}>
             <div
@@ -86,6 +157,13 @@ export function SubApiDrawer({ api, project, onClose, onSave, services = [], all
                         <h2 className="text-lg font-bold text-white max-w-sm truncate">{localApi.name || "Untitled Endpoint"}</h2>
                     </div>
                     <div className="flex items-center space-x-3">
+                        <button
+                            onClick={handleCopyAsCurl}
+                            className="flex items-center space-x-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                            title="Copy as cURL"
+                        >
+                            <Copy className="w-4 h-4" /> <span className="hidden sm:inline">cURL</span>
+                        </button>
                         <button onClick={handleSaveValidated} className={`flex items-center space-x-2 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${requestError ? 'bg-slate-700 text-slate-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`} disabled={!!requestError}>
                             <Save className="w-4 h-4" /> <span>Save</span>
                         </button>
@@ -222,6 +300,16 @@ export function SubApiDrawer({ api, project, onClose, onSave, services = [], all
                                         <option key={ch} value={ch}>{ch}</option>
                                     ))}
                                 </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5 flex items-center gap-1.5">
+                                    <Tag className="w-3 h-3" /> Tags
+                                </label>
+                                <TagsInput
+                                    tags={localApi.tags || []}
+                                    onChange={tags => setLocalApi({ ...localApi, tags })}
+                                />
+                                <p className="text-[10px] text-slate-600 mt-1">Press Enter or comma to add a tag. Tags help filter and organize endpoints.</p>
                             </div>
                         </div>
                     )}

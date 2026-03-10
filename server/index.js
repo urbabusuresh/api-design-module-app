@@ -212,6 +212,7 @@ async function initDb() {
             await ensureColumn('services', 'status', "VARCHAR(50) DEFAULT 'Active'");
             await ensureColumn('api_catalog', 'remarks', "TEXT");
             await ensureColumn('api_catalog', 'design_metadata', "JSON");
+            await ensureColumn('api_catalog', 'tags', "JSON");
         } catch (migErr) {
             console.error("Critical Migration Error:", migErr.message);
         }
@@ -597,7 +598,13 @@ app.get('/api/projects/:id', async (req, res) => {
                             }
                         })(),
                         createdBy: api.created_by,
-                        updatedBy: api.updated_by
+                        updatedBy: api.updated_by,
+                        tags: (() => {
+                            try {
+                                if (!api.tags) return [];
+                                return typeof api.tags === 'string' ? JSON.parse(api.tags) : api.tags;
+                            } catch (_) { return []; }
+                        })()
                     };
                 });
                 return svc;
@@ -865,6 +872,7 @@ app.post('/api/sub-apis', async (req, res) => {
         reference_link: api.referenceLink,
         remarks: api.remarks || null,
         design_metadata: api.designMetadata ? JSON.stringify(api.designMetadata) : null,
+        tags: api.tags ? JSON.stringify(api.tags) : null,
         body_format: api.bodyFormat || 'json',
         api_type: api.apiType || 'REST',
 
