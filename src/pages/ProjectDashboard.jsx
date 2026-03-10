@@ -28,6 +28,7 @@ import { EnvVariableManager } from '../components/dashboard/EnvVariableManager';
 import { Wso2ExposeDrawer } from '../components/dashboard/Wso2ExposeDrawer';
 import { CollectionsManager } from '../components/dashboard/CollectionsManager';
 import { useTheme } from '../ThemeContext.jsx';
+import { ProjectStatsPanel } from '../components/dashboard/ProjectStatsPanel';
 
 // Main Workspace Component (The Dashboard)
 export default function ProjectDashboard({ project, onBack, onRefresh, allProjects, mode = 'full' }) {
@@ -50,6 +51,7 @@ export default function ProjectDashboard({ project, onBack, onRefresh, allProjec
     // Filters
     const [filterCategory, setFilterCategory] = useState('All');
     const [filterChannel, setFilterChannel] = useState('All');
+    const [filterTag, setFilterTag] = useState('All');
     const [searchQuery, setSearchQuery] = useState('');
 
     const environments = project.settings?.environments || ['DEV', 'SIT', 'UAT', 'PROD'];
@@ -296,6 +298,38 @@ export default function ProjectDashboard({ project, onBack, onRefresh, allProjec
     const handleExposeWso2 = (item, type = 'endpoint') => {
         // Add type to the item so the drawer knows what it's dealing with
         setWso2ExposeApi({ ...item, _isService: type === 'service' });
+    };
+
+    const handleCopyAsCurl = (apiItem) => {
+        try {
+            const method = apiItem.method || 'GET';
+            const url = apiItem.url || '/';
+            const headers = Array.isArray(apiItem.headers) ? apiItem.headers.filter(h => h.key) : [];
+            const body = typeof apiItem.request === 'string' ? apiItem.request : JSON.stringify(apiItem.request || {}, null, 2);
+            const bodyFormat = apiItem.bodyFormat || 'json';
+
+            let cmd = `curl -X ${method} '${url}'`;
+            if (bodyFormat === 'json' && !headers.some(h => h.key.toLowerCase() === 'content-type')) {
+                cmd += ` \\\n  -H 'Content-Type: application/json'`;
+            }
+            headers.forEach(h => { cmd += ` \\\n  -H '${h.key}: ${h.value}'`; });
+            if (method !== 'GET' && body && body.trim()) {
+                let isEmptyBody = false;
+                try { const parsed = JSON.parse(body); isEmptyBody = typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).length === 0; } catch (_) { }
+                if (!isEmptyBody) {
+                    const escapedBody = body.replace(/'/g, "'\\''");
+                    cmd += ` \\\n  -d '${escapedBody}'`;
+                }
+            }
+
+            navigator.clipboard.writeText(cmd).then(() => {
+                toast.success('cURL command copied!');
+            }).catch(() => {
+                toast.error('Failed to copy to clipboard');
+            });
+        } catch (e) {
+            toast.error('Failed to generate cURL command');
+        }
     };
 
     // Swagger Modal State
@@ -799,6 +833,9 @@ export default function ProjectDashboard({ project, onBack, onRefresh, allProjec
                                 </div>
                             ) : (
                                 <>
+                                    {!selectedSystemId && !searchQuery && (
+                                        <ProjectStatsPanel project={project} />
+                                    )}
                                     {!selectedRootId && activeSystem && systemViewMode === 'services' && (
                                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-fade-in">
                                             {!searchQuery && (
@@ -876,6 +913,17 @@ export default function ProjectDashboard({ project, onBack, onRefresh, allProjec
                                                             {(project.settings?.channels?.southbound || []).map(c => <option key={c} value={c}>{c}</option>)}
                                                         </optgroup>
                                                     </select>
+                                                    {/* Tag filter */}
+                                                    {(() => {
+                                                        const allTags = [...new Set((activeSystem?.rootApis || []).flatMap(svc => (svc.subApis || []).flatMap(a => a.tags || [])))];
+                                                        if (allTags.length === 0) return null;
+                                                        return (
+                                                            <select value={filterTag} onChange={e => setFilterTag(e.target.value)} className="bg-slate-900 border border-slate-800 rounded-md px-2 py-1 text-xs text-slate-300 outline-none">
+                                                                <option value="All">All Tags</option>
+                                                                {allTags.map(t => <option key={t} value={t}>{t}</option>)}
+                                                            </select>
+                                                        );
+                                                    })()}
                                                 </div>
 
                                                 <button
@@ -913,13 +961,17 @@ export default function ProjectDashboard({ project, onBack, onRefresh, allProjec
                                                             const provMatch = apiItem.providerSystem === filterChannel;
                                                             if (!nbMatch && !sbMatch && !provMatch) return false;
                                                         }
+                                                        if (filterTag !== 'All') {
+                                                            if (!apiItem.tags?.includes(filterTag)) return false;
+                                                        }
                                                         if (searchQuery) {
                                                             const query = searchQuery.toLowerCase();
                                                             const matches =
                                                                 apiItem.name.toLowerCase().includes(query) ||
                                                                 apiItem.url.toLowerCase().includes(query) ||
                                                                 apiItem.description?.toLowerCase().includes(query) ||
-                                                                apiItem._svcName.toLowerCase().includes(query);
+                                                                apiItem._svcName.toLowerCase().includes(query) ||
+                                                                (apiItem.tags || []).some(t => t.toLowerCase().includes(query));
                                                             if (!matches) return false;
                                                         }
                                                         return true;
@@ -937,6 +989,14 @@ export default function ProjectDashboard({ project, onBack, onRefresh, allProjec
                                                                             <span className="font-medium text-white truncate" title={apiItem.name}>{apiItem.name}</span>
                                                                             {apiItem.is_auth_api && <Key className="w-3 h-3 text-amber-500 shrink-0" title="Authentication API" />}
                                                                         </div>
+                                                                        {(apiItem.tags || []).length > 0 && (
+                                                                            <div className="flex flex-wrap gap-1 mt-1">
+                                                                                {(apiItem.tags).slice(0, 2).map(tag => (
+                                                                                    <span key={tag} className="text-[8px] font-bold px-1.5 py-0.5 bg-indigo-500/10 border border-indigo-500/20 rounded text-indigo-400">{tag}</span>
+                                                                                ))}
+                                                                                {apiItem.tags.length > 2 && <span className="text-[8px] text-slate-600">+{apiItem.tags.length - 2}</span>}
+                                                                            </div>
+                                                                        )}
                                                                     </div>
                                                                 </div>
                                                                 <div className="col-span-1 text-center">
@@ -956,6 +1016,7 @@ export default function ProjectDashboard({ project, onBack, onRefresh, allProjec
                                                                     </span>
                                                                 </div>
                                                                 <div className="col-span-2 flex justify-end px-2 space-x-1">
+                                                                    <button onClick={(e) => { e.stopPropagation(); handleCopyAsCurl(apiItem); }} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-200 transition-colors" title="Copy as cURL"><Copy className="w-4 h-4" /></button>
                                                                     <button onClick={(e) => { e.stopPropagation(); setTestApiTarget(apiItem); }} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-emerald-400 transition-colors" title="Test API"><Play className="w-4 h-4" /></button>
                                                                     <button onClick={(e) => { e.stopPropagation(); setShowSwaggerModal(apiItem); }} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-amber-400 transition-colors" title="View Swagger"><FileJson className="w-4 h-4" /></button>
                                                                     <button onClick={(e) => { e.stopPropagation(); setSelectedSubApi(apiItem); }} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-indigo-400 transition-colors" title="View Details"><Eye className="w-4 h-4" /></button>
@@ -1055,10 +1116,19 @@ export default function ProjectDashboard({ project, onBack, onRefresh, allProjec
                                                                         </span>
                                                                     </div>
                                                                     <div className="text-slate-500 text-[11px] font-mono mt-0.5 truncate" title={sub.url}>{sub.url}</div>
+                                                                    {(sub.tags || []).length > 0 && (
+                                                                        <div className="flex flex-wrap gap-1 mt-1">
+                                                                            {(sub.tags).slice(0, 3).map(tag => (
+                                                                                <span key={tag} className="text-[8px] font-bold px-1.5 py-0.5 bg-indigo-500/10 border border-indigo-500/20 rounded text-indigo-400">{tag}</span>
+                                                                            ))}
+                                                                            {sub.tags.length > 3 && <span className="text-[8px] text-slate-600">+{sub.tags.length - 3}</span>}
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             </div>
                                                             <div className="flex items-center space-x-2">
                                                                 <button onClick={(e) => { e.stopPropagation(); handleDuplicateSubApi(activeRoot?.id, sub); }} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-indigo-400 transition-colors" title="Duplicate API"><Copy className="w-4 h-4" /></button>
+                                                                <button onClick={(e) => { e.stopPropagation(); handleCopyAsCurl(sub); }} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-200 transition-colors" title="Copy as cURL"><span className="text-[9px] font-black tracking-tight">cURL</span></button>
                                                                 <button onClick={(e) => { e.stopPropagation(); setTestApiTarget(sub); }} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-emerald-400 transition-colors" title="Test API"><Play className="w-4 h-4" /></button>
                                                                 <button onClick={(e) => { e.stopPropagation(); setShowSwaggerModal(sub); }} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-amber-400 transition-colors" title="Swagger"><FileJson className="w-4 h-4" /></button>
                                                                 <button onClick={(e) => { e.stopPropagation(); setSelectedSubApi(sub); }} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-indigo-400 transition-colors" title="View Details"><Eye className="w-4 h-4" /></button>
