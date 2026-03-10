@@ -36,7 +36,7 @@ if (-not (Test-Path "release_bundle/uat.env")) {
                   "DB_HOST=localhost`n" +
                   "DB_USER=root`n" +
                   "DB_PASSWORD=root`n" +
-                  "DB_NAME=raptr_dxp_db"
+                  "DB_NAME=raptr_test_api_design"
     Set-Content -Path "release_bundle/uat.env" -Value $envContent
 }
 

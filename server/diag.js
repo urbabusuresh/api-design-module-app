@@ -6,7 +6,7 @@ const dbConfig = {
     port: process.env.DB_PORT || 3306,
     user: process.env.DB_USER || 'root',
     password: process.env.DB_PASS || process.env.DB_PASSWORD || 'root',
-    database: process.env.DB_NAME || 'raptr_dxp_db'
+    database: process.env.DB_NAME || 'raptr_test_api_design'
 };
 
 async function check() {

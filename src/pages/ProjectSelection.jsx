@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
     Plus, Folder, Box, Globe, Trash2, Search, LogOut,
     Server, BookOpen, Key, ChevronRight, Check, Layers, Shield,
-    Zap, X, Lock, ArrowUpRight, Activity, Waypoints, Network, Workflow
+    Zap, X, Lock, ArrowUpRight, Activity, Waypoints, Network, Workflow, Play as PlayIcon, Clock
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ConfirmModal from '../components/dashboard/ConfirmModal.jsx';
@@ -516,13 +516,22 @@ function ProjectCard({ project, isWso2, onSelect, onDelete, setConfirmDelete, id
                             : 'bg-gradient-to-br from-blue-600/10 to-blue-900/20 border-blue-500/20 text-blue-400 group-hover:from-blue-600 group-hover:to-blue-800 group-hover:text-white group-hover:border-blue-500'}`}>
                         {isWso2 ? <Activity className="w-5 h-5 animate-pulse" /> : <Waypoints className="w-4 h-4" />}
                     </div>
-                    <button
-                        onClick={e => { e.stopPropagation(); setConfirmDelete({ id: project.id, name: project.name }); }}
-                        className="p-1.5 hover:bg-red-500/10 text-slate-600 hover:text-red-400 rounded-lg opacity-0 group-hover:opacity-100 transition-colors"
-                        title="Delete Workspace"
-                    >
-                        <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-all">
+                        <button
+                            onClick={e => { e.stopPropagation(); onSelect(project, false, 'test'); }}
+                            className="p-1.5 hover:bg-emerald-500/10 text-emerald-500 rounded-lg transition-colors"
+                            title="360° Test Collections"
+                        >
+                            <PlayIcon className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={e => { e.stopPropagation(); setConfirmDelete({ id: project.id, name: project.name }); }}
+                            className="p-1.5 hover:bg-red-500/10 text-slate-600 hover:text-red-400 rounded-lg transition-colors"
+                            title="Delete Workspace"
+                        >
+                            <Trash2 className="w-4 h-4" />
+                        </button>
+                    </div>
                 </div>
 
                 <div className="flex-1">
@@ -553,6 +562,24 @@ function ProjectCard({ project, isWso2, onSelect, onDelete, setConfirmDelete, id
                             </div>
                         </div>
                     )}
+                    <div className="flex-1 flex justify-center">
+                        {project.latest_run ? (
+                            <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-[9px] font-black uppercase tracking-wider
+                                ${project.latest_run.status === 'Completed' && project.latest_run.passed === project.latest_run.total
+                                    ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
+                                    : 'bg-amber-500/10 text-amber-500 border-amber-500/20'
+                                }`}>
+                                <Activity className="w-2.5 h-2.5" />
+                                <span>{project.latest_run.passed}/{project.latest_run.total} PASSED</span>
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-slate-800 bg-slate-900/50 text-slate-500 text-[9px] font-bold uppercase tracking-wider">
+                                <Activity className="w-2.5 h-2.5 opacity-50" />
+                                <span>No Run Data</span>
+                            </div>
+                        )}
+                    </div>
+
                     <div className={`w-7 h-7 flex items-center justify-center rounded-lg transition-all duration-300 opacity-0 group-hover:opacity-100 
                         ${isWso2 ? 'bg-red-500/10 text-red-400 group-hover:bg-red-500/20'
                             : 'bg-blue-500/10 text-blue-400 group-hover:bg-blue-500/20'}`}>

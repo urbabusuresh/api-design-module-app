@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
     Globe, Activity, Play, Clock, Database, ChevronRight, CheckCircle,
-    Shield, Trash2, Plus, Copy, Box, Laptop, X
+    Shield, Trash2, Plus, Copy, Box, Laptop, X, AlertCircle
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api } from '../../api';
@@ -252,6 +252,48 @@ export function AdvancedApiTester({ api: targetApi, project, onUpdateExamples, m
     const [activeResTab, setActiveResTab] = useState('body');
     const [history, setHistory] = useState([]);
 
+    // Live Variable Detection & Validation Logic
+    const [detectedVars, setDetectedVars] = useState([]);
+
+    const getVarPool = () => {
+        let pool = {};
+        try {
+            const gv = project.global_variables || project.globalVariables || {};
+            const parsedGv = typeof gv === 'string' ? JSON.parse(gv) : gv;
+            if (selectedEnv && parsedGv[selectedEnv]) {
+                pool = { ...parsedGv[selectedEnv] };
+            } else if (typeof parsedGv === 'object' && !Array.isArray(parsedGv)) {
+                pool = { ...parsedGv };
+            }
+        } catch (e) { }
+        return pool;
+    };
+
+    useEffect(() => {
+        const pool = getVarPool();
+        const detected = new Set();
+        const regex = /\{\{(\w+)\}\}/g;
+
+        const scan = (text) => {
+            if (!text || typeof text !== 'string') return;
+            let match;
+            regex.lastIndex = 0; // Reset regex
+            while ((match = regex.exec(text)) !== null) {
+                detected.add(match[1]);
+            }
+        };
+
+        scan(testUrl);
+        testHeaders.forEach(h => { scan(h.key); scan(h.value); });
+        scan(testBody);
+
+        setDetectedVars([...detected].map(key => ({
+            key,
+            exists: pool[key] !== undefined,
+            value: pool[key]
+        })));
+    }, [testUrl, testHeaders, testBody, selectedEnv, project.global_variables, project.globalVariables]);
+
     const authProfiles = project.authProfiles || [];
 
     const loadHistory = async () => {
@@ -274,12 +316,30 @@ export function AdvancedApiTester({ api: targetApi, project, onUpdateExamples, m
         addLog("Initializing request cycle...", "info");
 
         try {
-            // Helper to resolve {{variable}} placeholders from global variables
-            const globalVars = project.globalVariables || {};
+            // 0. Build combined variable pool (Global + Environment specific)
+            let varPool = {};
+            try {
+                // Handle both snake_case (DB) and camelCase (legacy/frontend) mappings
+                const gv = project.global_variables || project.globalVariables || {};
+                const parsedGv = typeof gv === 'string' ? JSON.parse(gv) : gv;
+
+                // If it's the new environment-mapped structure: { DEV: {...}, SIT: {...} }
+                if (selectedEnv && parsedGv[selectedEnv]) {
+                    varPool = { ...parsedGv[selectedEnv] };
+                    addLog(`Loaded ${Object.keys(varPool).length} variables for ${selectedEnv} environment.`, "info");
+                }
+                // Fallback/Legacy: If it's a flat object, use it directly
+                else if (typeof parsedGv === 'object' && !Array.isArray(parsedGv)) {
+                    varPool = { ...parsedGv };
+                }
+            } catch (e) {
+                console.error("Variable pool initialization failed", e);
+            }
+
             const resolveVars = (str) => {
                 if (typeof str !== 'string') return str;
                 return str.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-                    return globalVars[key] !== undefined ? globalVars[key] : `{{${key}}}`;
+                    return varPool[key] !== undefined ? varPool[key] : `{{${key}}}`;
                 });
             };
 
@@ -360,19 +420,22 @@ export function AdvancedApiTester({ api: targetApi, project, onUpdateExamples, m
             }
 
             // Resolve global variables in URL
-            let base = "";
-            if (currentModule && selectedEnv && currentModule.env_urls) {
+            // Resolve context base URL from module settings
+            let contextBase = "";
+            if (currentModule && selectedEnv) {
                 try {
-                    const urls = typeof currentModule.env_urls === 'string' ? JSON.parse(currentModule.env_urls) : currentModule.env_urls;
-                    base = urls[selectedEnv] || "";
-                    if (base) addLog(`Prepending ${selectedEnv} base URL: ${base}`, "info");
+                    const ctxUrls = typeof currentModule.env_context_apis === 'string'
+                        ? JSON.parse(currentModule.env_context_apis)
+                        : (currentModule.env_context_apis || {});
+                    contextBase = ctxUrls[selectedEnv] || "";
+                    if (contextBase) addLog(`Prepending ${selectedEnv} context URL: ${contextBase}`, "info");
                 } catch (e) { }
             }
 
             const rawVal = resolveVars(testUrl);
-            const resolvedUrl = (rawVal.startsWith('http') || !base)
+            const resolvedUrl = (rawVal.startsWith('http') || !contextBase)
                 ? rawVal
-                : (base.replace(/\/$/, '') + '/' + rawVal.replace(/^\//, ''));
+                : (contextBase.replace(/\/$/, '') + '/' + rawVal.replace(/^\//, ''));
 
             let finalAuth = { ...auth };
             if (selectedProfileId) {
@@ -389,7 +452,24 @@ export function AdvancedApiTester({ api: targetApi, project, onUpdateExamples, m
                             const authApi = authApis.find(a => a.id === profile.authApiId);
 
                             if (authApi) {
-                                addLog(`Calling Token API: ${authApi.url}`, "info");
+                                // Resolve Auth API Base URL based on its own module configuration
+                                let authContextBase = contextBase; // Default to current if same module
+                                if (profile.linkedModuleId !== moduleId) {
+                                    const authModule = project.modules?.find(m => m.id === profile.linkedModuleId);
+                                    if (authModule) {
+                                        try {
+                                            const ctx = typeof authModule.env_context_apis === 'string' ? JSON.parse(authModule.env_context_apis) : (authModule.env_context_apis || {});
+                                            authContextBase = ctx[selectedEnv] || "";
+                                        } catch (e) { }
+                                    }
+                                }
+
+                                const rawAuthUrl = authApi.url || "";
+                                const resolvedAuthUrl = (rawAuthUrl.startsWith('http') || !authContextBase)
+                                    ? rawAuthUrl
+                                    : (authContextBase.replace(/\/$/, '') + '/' + rawAuthUrl.replace(/^\//, ''));
+
+                                addLog(`Calling Token API: ${resolvedAuthUrl}`, "info");
                                 const authApiHeaders = typeof authApi.headers === 'string' ? JSON.parse(authApi.headers) : (authApi.headers || {});
                                 const authApiAuth = typeof authApi.authentication === 'string' ? JSON.parse(authApi.authentication) : (authApi.authentication || { type: 'None' });
 
@@ -402,7 +482,7 @@ export function AdvancedApiTester({ api: targetApi, project, onUpdateExamples, m
                                 }
 
                                 const authRes = await api.testEndpoint({
-                                    url: authApi.url,
+                                    url: resolvedAuthUrl,
                                     method: authApi.http_method || 'POST',
                                     headers: authApiHeaders,
                                     body: typeof authApi.request_body === 'string' ? JSON.parse(authApi.request_body) : (authApi.request_body || {})
@@ -578,14 +658,30 @@ export function AdvancedApiTester({ api: targetApi, project, onUpdateExamples, m
                     >
                         {['GET', 'POST', 'PUT', 'DELETE', 'PATCH'].map(m => <option key={m}>{m}</option>)}
                     </select>
-                    <div className="flex-1 flex items-center bg-slate-950/50 rounded-lg px-2 border border-slate-800/50">
-                        <Globe className="w-3.5 h-3.5 text-slate-600 mr-2" />
-                        <input
-                            value={testUrl}
-                            onChange={e => setTestUrl(e.target.value)}
-                            placeholder="https://api.example.com/resource"
-                            className="flex-1 bg-transparent border-none py-2 text-xs font-mono text-white outline-none placeholder-slate-700"
-                        />
+                    <div className="flex-1 flex flex-col min-w-0">
+                        <div className="flex items-center bg-slate-950/50 rounded-lg px-2 border border-slate-800/50">
+                            <Globe className="w-3.5 h-3.5 text-slate-600 mr-2 shrink-0" />
+                            <input
+                                value={testUrl}
+                                onChange={e => setTestUrl(e.target.value)}
+                                placeholder="https://api.example.com/resource"
+                                className="flex-1 bg-transparent border-none py-2 text-xs font-mono text-white outline-none placeholder-slate-700"
+                            />
+                        </div>
+                        {testUrl && !testUrl.startsWith('http') && (() => {
+                            const ctx = project.modules?.find(m => m.id === moduleId)?.env_context_apis;
+                            const ctxUrls = typeof ctx === 'string' ? JSON.parse(ctx || '{}') : (ctx || {});
+                            const base = ctxUrls[selectedEnv] || "";
+                            if (base) {
+                                return (
+                                    <div className="px-2 py-0.5 text-[9px] font-mono text-indigo-400 bg-indigo-500/5 border-x border-b border-slate-800/40 rounded-b-lg flex items-center gap-1 truncate animate-fade-in">
+                                        <span className="text-slate-600">Full URL:</span>
+                                        <span className="truncate">{base.replace(/\/$/, '') + '/' + testUrl.replace(/^\//, '')}</span>
+                                    </div>
+                                );
+                            }
+                            return null;
+                        })()}
                     </div>
                     <button
                         onClick={runTest}
@@ -596,6 +692,30 @@ export function AdvancedApiTester({ api: targetApi, project, onUpdateExamples, m
                         <span>{loading ? 'Processing...' : 'Send Request'}</span>
                     </button>
                 </div>
+
+                {/* Live Variable Status Bar */}
+                {detectedVars.length > 0 && (
+                    <div className="mt-3 px-2 flex flex-wrap gap-2 animate-fade-in border-t border-slate-800/30 pt-3">
+                        <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest flex items-center h-5 mr-1">
+                            <Sparkles className="w-2.5 h-2.5 mr-1.5 text-indigo-400" /> Detected Variables:
+                        </span>
+                        {detectedVars.map(v => (
+                            <div
+                                key={v.key}
+                                title={v.exists ? `Value: ${v.value}` : "This variable is NOT defined in the current environment"}
+                                className={`flex items-center space-x-1.5 px-2 py-0.5 rounded-full border text-[9px] font-bold transition-all ${v.exists
+                                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                    : 'bg-red-500/10 border-red-500/30 text-red-400 animate-pulse'
+                                    }`}
+                            >
+                                <span className="opacity-50">{'{{'}</span>
+                                <span>{v.key}</span>
+                                <span className="opacity-50">{'}}'}</span>
+                                {!v.exists && <AlertCircle className="w-2.5 h-2.5 ml-1" />}
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
 
             {/* Main Split Area */}

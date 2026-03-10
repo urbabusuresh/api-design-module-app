@@ -19,7 +19,7 @@ import { ApiStatusWorkflow } from './ApiStatusWorkflow';
 import { MockResponseGenerator } from './MockResponseGenerator';
 import ReactMarkdown from 'react-markdown';
 
-export function ModuleViewer({ module, environments = [], selectedEnv: globalSelectedEnv, onUpdate, project }) {
+export function ModuleViewer({ module, environments = [], selectedEnv: globalSelectedEnv, onUpdate, onUpdateSettings, onRefresh, project }) {
     const [isEditing, setIsEditing] = useState(false);
     const [spec, setSpec] = useState(module.swagger_content || "");
     const [url, setUrl] = useState(module.swagger_url || "");
@@ -30,7 +30,7 @@ export function ModuleViewer({ module, environments = [], selectedEnv: globalSel
     const [envAuthProfiles, setEnvAuthProfiles] = useState(typeof module.env_auth_profiles === 'string' ? JSON.parse(module.env_auth_profiles) : module.env_auth_profiles || {});
 
     const [viewMode, setViewMode] = useState('list');
-    const selectedEnv = globalSelectedEnv || 'DEV';
+    const [activeEnv, setActiveEnv] = useState(globalSelectedEnv || 'DEV');
     const [loadSwaggerRequested, setLoadSwaggerRequested] = useState(false);
 
     useEffect(() => {
@@ -41,14 +41,15 @@ export function ModuleViewer({ module, environments = [], selectedEnv: globalSel
         setStandardHeaders(typeof module.standard_headers === 'string' ? JSON.parse(module.standard_headers) : module.standard_headers || {});
         setEnvContextApis(typeof module.env_context_apis === 'string' ? JSON.parse(module.env_context_apis) : module.env_context_apis || {});
         setEnvAuthProfiles(typeof module.env_auth_profiles === 'string' ? JSON.parse(module.env_auth_profiles) : module.env_auth_profiles || {});
-    }, [module]);
+        if (globalSelectedEnv) setActiveEnv(globalSelectedEnv);
+    }, [module, globalSelectedEnv]);
 
     const handleSave = () => {
         onUpdate(module.id, { name, swagger: spec, swaggerUrl: url, envUrls, standardHeaders, envContextApis, envAuthProfiles });
         setIsEditing(false);
     };
 
-    const currentDisplayUrl = envUrls[selectedEnv] || url;
+    const currentDisplayUrl = envUrls[activeEnv] || url;
 
     return (
         <div className="flex flex-col h-full bg-slate-50">
@@ -64,9 +65,25 @@ export function ModuleViewer({ module, environments = [], selectedEnv: globalSel
                 </div>
                 <div className="flex items-center space-x-3">
                     {!isEditing && (
-                        <div className="flex bg-slate-800 rounded-lg p-0.5 mr-4">
-                            <button onClick={() => setViewMode('swagger')} className={`px-3 py-1 text-xs font-bold rounded-md ${viewMode === 'swagger' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}>Swagger UI</button>
-                            <button onClick={() => setViewMode('list')} className={`px-3 py-1 text-xs font-bold rounded-md ${viewMode === 'list' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}>Module APIs</button>
+                        <div className="flex items-center space-x-3">
+                            {/* Environment Switcher */}
+                            <div className="flex items-center space-x-2 bg-slate-800 border border-slate-700/50 p-1 rounded-lg mr-2">
+                                <Globe className="w-3.5 h-3.5 text-slate-500 ml-2" />
+                                <select
+                                    value={activeEnv}
+                                    onChange={(e) => setActiveEnv(e.target.value)}
+                                    className="bg-transparent border-none text-[10px] font-bold text-slate-300 outline-none pr-6 pl-1 py-1 cursor-pointer hover:text-white transition-colors uppercase tracking-widest"
+                                >
+                                    {environments.map(env => (
+                                        <option key={env} value={env} className="bg-slate-900 text-white">{env}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="flex bg-slate-800 rounded-lg p-0.5 mr-4">
+                                <button onClick={() => setViewMode('swagger')} className={`px-3 py-1 text-xs font-bold rounded-md ${viewMode === 'swagger' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}>Swagger UI</button>
+                                <button onClick={() => setViewMode('list')} className={`px-3 py-1 text-xs font-bold rounded-md ${viewMode === 'list' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'}`}>Module APIs</button>
+                            </div>
                         </div>
                     )}
 
@@ -184,9 +201,12 @@ export function ModuleViewer({ module, environments = [], selectedEnv: globalSel
                         <div className="flex items-center space-x-2">
                             <Globe className="w-3.5 h-3.5 text-slate-400" />
                             <span className="text-xs font-bold text-slate-500 uppercase">Environment:</span>
-                            <span className="bg-slate-200 text-indigo-700 px-2 py-0.5 rounded text-[10px] font-black tracking-widest uppercase">{selectedEnv}</span>
+                            <span className="bg-slate-200 text-indigo-700 px-2 py-0.5 rounded text-[10px] font-black tracking-widest uppercase">{activeEnv}</span>
                             <span className="text-xs text-slate-400 px-2">|</span>
-                            <span className="text-xs font-mono text-slate-600 truncate max-w-md" title={currentDisplayUrl}>{currentDisplayUrl || "No URL mapped"}</span>
+                            {/* Show Context Base URL if available, otherwise fallback to Swagger URL */}
+                            <span className="text-xs font-mono text-slate-600 truncate max-w-md" title={envContextApis[activeEnv] || currentDisplayUrl}>
+                                {envContextApis[activeEnv] || currentDisplayUrl || "No URL mapped"}
+                            </span>
                         </div>
                         {viewMode === 'swagger' && currentDisplayUrl && (
                             <div className="flex items-center space-x-3">
@@ -228,13 +248,13 @@ export function ModuleViewer({ module, environments = [], selectedEnv: globalSel
                             ) : (
                                 <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 space-y-4">
                                     <FileJson className="w-16 h-16 opacity-20" />
-                                    <p>No Swagger Definition Found for {selectedEnv}</p>
+                                    <p>No Swagger Definition Found for {activeEnv}</p>
                                     <button onClick={() => setIsEditing(true)} className="text-indigo-600 hover:underline font-medium">Add Configuration</button>
                                 </div>
                             )}
                         </div>
                     ) : (
-                        <ModuleApiCatalog module={module} project={project} selectedEnv={selectedEnv} />
+                        <ModuleApiCatalog module={module} project={project} selectedEnv={activeEnv} environments={environments} onUpdateSettings={onUpdateSettings} onRefresh={onRefresh} />
                     )}
                 </div>
             )}
@@ -242,7 +262,7 @@ export function ModuleViewer({ module, environments = [], selectedEnv: globalSel
     );
 }
 
-export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
+export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV', environments = [], onUpdateSettings, onRefresh }) {
     const [apis, setApis] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedApi, setSelectedApi] = useState(null);
@@ -258,6 +278,7 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
     const [bulkSelected, setBulkSelected] = useState(new Set());
     const [bulkStatus, setBulkStatus] = useState('');
     const [confirmConfig, setConfirmConfig] = useState(null); // { title, message, onConfirm, type }
+    const [activeCollectionAdd, setActiveCollectionAdd] = useState(null);
 
     useEffect(() => {
         loadApis();
@@ -599,6 +620,7 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
                                         </span>
                                     </div>
                                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                                        <button onClick={(e) => { e.stopPropagation(); setActiveCollectionAdd(apiItem); }} className="p-1 text-slate-400 hover:text-emerald-500" title="Add to Collection"><Plus className="w-3.5 h-3.5" /></button>
                                         <button onClick={(e) => { e.stopPropagation(); handleDuplicate(apiItem); }} className="p-1 text-slate-400 hover:text-indigo-500" title="Duplicate"><Copy className="w-3.5 h-3.5" /></button>
                                         <button onClick={(e) => { e.stopPropagation(); handleDelete(apiItem.id); }} className="p-1 text-slate-400 hover:text-red-500" title="Delete"><Trash2 className="w-4 h-4" /></button>
                                     </div>
@@ -623,6 +645,7 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
                     moduleId={module.id}
                     project={project}
                     selectedEnv={selectedEnv}
+                    environments={environments}
                     onClose={() => { setSelectedApi(null); setIsCreating(false); }}
                     onSave={handleSave}
                 />
@@ -631,8 +654,16 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
             {showHealthMonitor && (
                 <ApiHealthMonitor
                     apis={apis}
-                    baseUrl={typeof module.env_context_apis === 'string' ? JSON.parse(module.env_context_apis || '{}')[selectedEnv] || '' : (module.env_context_apis || {})[selectedEnv] || ''}
+                    baseUrl={(() => {
+                        try {
+                            const ctx = typeof module.env_context_apis === 'string'
+                                ? JSON.parse(module.env_context_apis || '{}')
+                                : (module.env_context_apis || {});
+                            return ctx[activeEnv] || '';
+                        } catch (e) { return ''; }
+                    })()}
                     project={project}
+                    selectedEnv={activeEnv}
                     onClose={() => setShowHealthMonitor(false)}
                 />
             )}
@@ -640,8 +671,16 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
             {showCollectionRunner && (
                 <CollectionRunner
                     apis={apis}
-                    baseUrl={typeof module.env_context_apis === 'string' ? JSON.parse(module.env_context_apis || '{}')[selectedEnv] || '' : (module.env_context_apis || {})[selectedEnv] || ''}
+                    baseUrl={(() => {
+                        try {
+                            const ctx = typeof module.env_context_apis === 'string'
+                                ? JSON.parse(module.env_context_apis || '{}')
+                                : (module.env_context_apis || {});
+                            return ctx[activeEnv] || '';
+                        } catch (e) { return ''; }
+                    })()}
                     project={project}
+                    selectedEnv={activeEnv}
                     onClose={() => setShowCollectionRunner(false)}
                 />
             )}
@@ -672,6 +711,15 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
                 />
             )}
 
+            {activeCollectionAdd && (
+                <CollectionPickerModal
+                    apiItem={activeCollectionAdd}
+                    project={project}
+                    onUpdateSettings={onUpdateSettings}
+                    onRefresh={onRefresh}
+                    onClose={() => setActiveCollectionAdd(null)}
+                />
+            )}
             {wsdlImport.open && (
                 <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 backdrop-blur-md p-4" onClick={() => setWsdlImport(prev => ({ ...prev, open: false }))}>
                     <div className="bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden animate-scale-in" onClick={e => e.stopPropagation()}>
@@ -777,7 +825,7 @@ export function ModuleApiCatalog({ module, project, selectedEnv = 'DEV' }) {
     );
 }
 
-export function ModuleApiDrawer({ api: initialApi, moduleId, project, onClose, onSave, selectedEnv }) {
+export function ModuleApiDrawer({ api: initialApi, moduleId, project, onClose, onSave, selectedEnv, environments = [] }) {
     const [localApi, setLocalApi] = useState(initialApi || {
         name: "",
         url: "",
@@ -792,6 +840,7 @@ export function ModuleApiDrawer({ api: initialApi, moduleId, project, onClose, o
         apiType: "REST"
     });
     const [activeTab, setActiveTab] = useState('info');
+    const [activeEnv, setActiveEnv] = useState(selectedEnv || 'DEV');
     const [showMockGenerator, setShowMockGenerator] = useState(false);
 
     const handleSave = () => {
@@ -845,6 +894,20 @@ export function ModuleApiDrawer({ api: initialApi, moduleId, project, onClose, o
                         </div>
                     </div>
                     <div className="flex items-center space-x-2">
+                        {/* Environment Switcher */}
+                        <div className="flex items-center space-x-2 bg-slate-800 border border-slate-700/50 p-1 rounded-lg">
+                            <Globe className="w-3 h-3 text-slate-500 ml-2" />
+                            <select
+                                value={activeEnv}
+                                onChange={(e) => setActiveEnv(e.target.value)}
+                                className="bg-transparent border-none text-[9px] font-bold text-slate-400 outline-none pr-5 pl-1 py-0.5 cursor-pointer hover:text-white transition-colors uppercase tracking-widest"
+                            >
+                                {environments.map(env => (
+                                    <option key={env} value={env} className="bg-slate-900 text-white">{env}</option>
+                                ))}
+                            </select>
+                        </div>
+
                         <button onClick={handleSave} className="flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-lg shadow-indigo-500/20">
                             <Save className="w-3.5 h-3.5" /> <span>Save</span>
                         </button>
@@ -958,7 +1021,7 @@ export function ModuleApiDrawer({ api: initialApi, moduleId, project, onClose, o
                             api={localApi}
                             project={project}
                             moduleId={moduleId}
-                            selectedEnv={selectedEnv}
+                            selectedEnv={activeEnv}
                             onUpdateExamples={(sample) => setLocalApi({ ...localApi, response_body: sample })}
                         />
                     )}
@@ -974,4 +1037,133 @@ export function ModuleApiDrawer({ api: initialApi, moduleId, project, onClose, o
             </div>
         </div>
     );
+}
+
+/**
+ * CollectionPickerModal
+ * Handles adding an API to persistent project collections.
+ */
+function CollectionPickerModal({ apiItem, project, onClose, onRefresh }) {
+    const [newMode, setNewMode] = useState(false);
+    const [newName, setNewName] = useState('');
+    const [saving, setSaving] = useState(false);
+
+    const [realCollections, setRealCollections] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchColls = async () => {
+            try {
+                const data = await api.getCollections(project.id);
+                setRealCollections(data);
+                if (data.length === 0) setNewMode(true);
+            } finally { setLoading(false); }
+        };
+        fetchColls();
+    }, [project.id]);
+
+    const handleSave = async (collectionId) => {
+        setSaving(true);
+        try {
+            if (newMode) {
+                if (!newName.trim()) throw new Error('Enter a collection name');
+                await api.createCollection(project.id, {
+                    name: newName.trim(),
+                    apiIds: [apiItem.id]
+                });
+            } else {
+                const target = realCollections.find(c => c.id === collectionId);
+                if (target) {
+                    if (!target.apiIds.includes(apiItem.id)) {
+                        await api.updateCollection(collectionId, {
+                            name: target.name,
+                            apiIds: [...target.apiIds, apiItem.id]
+                        });
+                    } else {
+                        toast('Already in this collection', { icon: 'ℹ️' });
+                        onClose();
+                        return;
+                    }
+                }
+            }
+
+            toast.success(`Registered to ${newMode ? newName : 'collection'}!`);
+            if (onRefresh) onRefresh();
+            onClose();
+        } catch (err) {
+            toast.error(err.message);
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={onClose}>
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-scale-in" onClick={e => e.stopPropagation()}>
+                <div className="px-6 py-5 border-b border-slate-800 flex justify-between items-center">
+                    <div className="flex items-center space-x-3">
+                        <Bookmark className="w-5 h-5 text-emerald-400" />
+                        <h3 className="text-sm font-bold text-white uppercase tracking-tighter">Add to Collection</h3>
+                    </div>
+                </div>
+
+                <div className="p-6 space-y-4">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest pl-1">Target Collection</p>
+
+                    {!newMode ? (
+                        <div className="space-y-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
+                            {realCollections.map(c => (
+                                <button
+                                    key={c.id}
+                                    onClick={() => handleSave(c.id)}
+                                    disabled={saving}
+                                    className="w-full flex items-center justify-between p-3 bg-slate-950 border border-slate-800 rounded-xl hover:border-emerald-500/50 group transition-all"
+                                >
+                                    <span className="text-xs font-bold text-slate-300 group-hover:text-emerald-400 transition-colors uppercase">{c.name}</span>
+                                    <span className="text-[9px] text-slate-500 font-mono">{c.apiIds.length} APIs</span>
+                                </button>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="space-y-1">
+                            <input
+                                autoFocus
+                                value={newName}
+                                onChange={e => setNewName(e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-indigo-500 shadow-inner"
+                                placeholder="e.g. End-to-End Regression"
+                            />
+                        </div>
+                    )}
+
+                    <div className="flex items-center justify-between pt-4">
+                        <button
+                            onClick={() => setNewMode(!newMode)}
+                            className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 underline underline-offset-4"
+                        >
+                            {newMode ? (realCollections.length > 0 ? 'Choose Existing' : '') : '+ Create New Collection'}
+                        </button>
+
+                        {newMode && (
+                            <button
+                                onClick={() => handleSave()}
+                                disabled={saving || !newName}
+                                className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-5 py-2 rounded-xl text-xs font-bold transition-all shadow-lg shadow-indigo-500/20"
+                            >
+                                {saving ? 'Adding...' : 'Create & Add'}
+                            </button>
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function Bookmark({ className }) {
+    return (
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+            <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />
+        </svg>
+    )
 }

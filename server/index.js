@@ -51,12 +51,12 @@ async function initDb() {
             host: dbConfig.host,
             user: dbConfig.user,
             port: dbConfig.port,
-            database: process.env.DB_NAME || 'raptr_dxp_db',
+            database: process.env.DB_NAME || 'raptr_test_api_design',
             hasPassword: !!dbConfig.password
         });
         // Create connection without DB selected to create DB if not exists
         const connection = await mysql.createConnection(dbConfig);
-        const dbName = process.env.DB_NAME || 'raptr_dxp_db';
+        const dbName = process.env.DB_NAME || 'raptr_test_api_design';
         await connection.query(`CREATE DATABASE IF NOT EXISTS ${dbName}`);
         await connection.end();
 
@@ -142,6 +142,49 @@ async function initDb() {
             console.log("Migrations check complete.");
         } catch (mErr) {
             console.error("Migration Error (Non-critical):", mErr.message);
+        }
+
+        // --- MIGRATION: project_collections (Dedicated Table) ---
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS project_collections (
+                    id VARCHAR(50) PRIMARY KEY,
+                    project_id VARCHAR(50) NOT NULL,
+                    name VARCHAR(255) NOT NULL,
+                    api_ids TEXT,
+                    settings JSON,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+                )
+            `);
+            console.log("Ensured project_collections table exists.");
+
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS project_collection_runs (
+                    id VARCHAR(50) PRIMARY KEY,
+                    project_id VARCHAR(50) NOT NULL,
+                    collection_id VARCHAR(50) NOT NULL,
+                    status VARCHAR(20),
+                    total_steps INT,
+                    passed_steps INT,
+                    failed_steps INT,
+                    duration_ms INT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                    FOREIGN KEY (collection_id) REFERENCES project_collections(id) ON DELETE CASCADE
+                )
+            `);
+
+            // Add collection_run_id to api_test_logs if missing
+            try {
+                await pool.query('ALTER TABLE api_test_logs ADD COLUMN collection_run_id VARCHAR(50)');
+                console.log("Added collection_run_id to api_test_logs");
+            } catch (e) { }
+
+            console.log("Ensured project_collection_runs table exists.");
+        } catch (colErr) {
+            console.warn("Migration Error for project_collections:", colErr.message);
         }
 
         // --- SCHEMA MIGRATIONS ---
@@ -271,7 +314,19 @@ app.get('/api/projects', async (req, res) => {
             SELECT 
                 p.id, p.name, p.description, p.status, p.type, p.connection_details, p.created_at,
                 (SELECT COUNT(*) FROM systems s WHERE s.project_id = p.id AND (s.status != 'Deleted' OR s.status IS NULL)) as system_count,
-                (SELECT COUNT(*) FROM project_modules m WHERE m.project_id = p.id AND (m.status != 'Deleted' OR m.status IS NULL)) as module_count
+                (SELECT COUNT(*) FROM project_modules m WHERE m.project_id = p.id AND (m.status != 'Deleted' OR m.status IS NULL)) as module_count,
+                (
+                    SELECT JSON_OBJECT(
+                        'status', cr.status,
+                        'passed', cr.passed_steps,
+                        'total', cr.total_steps,
+                        'date', cr.created_at
+                    )
+                    FROM project_collection_runs cr
+                    WHERE cr.project_id = p.id
+                    ORDER BY cr.created_at DESC
+                    LIMIT 1
+                ) as latest_run
             FROM projects p 
             WHERE (p.status != 'Deleted' OR p.status IS NULL) 
             ORDER BY p.created_at DESC
@@ -281,7 +336,8 @@ app.get('/api/projects', async (req, res) => {
             ...r,
             systems: new Array(r.system_count || 0), // Mock arrays for UI .length compatibility
             modules: new Array(r.module_count || 0),
-            connection_details: typeof r.connection_details === 'string' ? JSON.parse(r.connection_details) : r.connection_details
+            connection_details: typeof r.connection_details === 'string' ? JSON.parse(r.connection_details) : r.connection_details,
+            latest_run: typeof r.latest_run === 'string' ? JSON.parse(r.latest_run) : r.latest_run
         }));
 
         console.log(`Found ${rows.length} rows in DB, returning ${projects.length} projects`);
@@ -623,6 +679,90 @@ app.put('/api/projects/:id/variables', async (req, res) => {
     try {
         await pool.query('UPDATE projects SET global_variables = ? WHERE id = ?', [JSON.stringify(variables || {}), id]);
         res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// --- COLLECTIONS (Dedicated Table Persistence) ---
+
+app.get('/api/projects/:id/collections', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const [rows] = await pool.query('SELECT * FROM project_collections WHERE project_id = ? ORDER BY created_at DESC', [id]);
+        res.json(rows.map(r => ({
+            id: r.id,
+            name: r.name,
+            apiIds: r.api_ids ? r.api_ids.split(',').filter(x => x) : [],
+            settings: typeof r.settings === 'string' ? JSON.parse(r.settings) : (r.settings || {})
+        })));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/projects/:id/collections', async (req, res) => {
+    const { id: projectId } = req.params;
+    const { name, apiIds, settings } = req.body;
+    const id = generateId('coll');
+    try {
+        const apiIdsStr = Array.isArray(apiIds) ? apiIds.join(',') : '';
+        const settingsStr = JSON.stringify(settings || {});
+        await pool.query('INSERT INTO project_collections (id, project_id, name, api_ids, settings) VALUES (?, ?, ?, ?, ?)',
+            [id, projectId, name, apiIdsStr, settingsStr]);
+        res.json({ id, name, apiIds });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.put('/api/collections/:id', async (req, res) => {
+    const { id } = req.params;
+    const { name, apiIds, settings } = req.body;
+    try {
+        const apiIdsStr = Array.isArray(apiIds) ? apiIds.join(',') : '';
+        const settingsStr = JSON.stringify(settings || {});
+        await pool.query('UPDATE project_collections SET name = ?, api_ids = ?, settings = ? WHERE id = ?',
+            [name, apiIdsStr, settingsStr, id]);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete('/api/collections/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        await pool.query('DELETE FROM project_collections WHERE id = ?', [id]);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/api/collections/:id/runs', async (req, res) => {
+    const { id: collectionId } = req.params;
+    const { projectId, status, totalSteps, passedSteps, failedSteps, durationMs } = req.body;
+    const id = generateId('crun');
+    try {
+        await pool.query(
+            'INSERT INTO project_collection_runs (id, project_id, collection_id, status, total_steps, passed_steps, failed_steps, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [id, projectId, collectionId, status, totalSteps, passedSteps, failedSteps, durationMs]
+        );
+        res.json({ id, success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/projects/:id/collection-runs', async (req, res) => {
+    const { id } = req.params;
+    try {
+        const [rows] = await pool.query(
+            'SELECT cr.*, c.name as collection_name FROM project_collection_runs cr JOIN project_collections c ON cr.collection_id = c.id WHERE cr.project_id = ? ORDER BY cr.created_at DESC LIMIT 50',
+            [id]
+        );
+        res.json(rows);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -1625,8 +1765,8 @@ app.post('/api/test-endpoint', async (req, res) => {
         if (projectId) {
             pool.query(
                 `INSERT INTO api_test_logs 
-                (id, project_id, api_id, url, method, request_headers, request_body, response_status, response_body, response_headers, duration, tested_by) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                (id, project_id, api_id, url, method, request_headers, request_body, response_status, response_body, response_headers, duration, tested_by, collection_run_id) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     generateId('log'),
                     projectId,
@@ -1639,7 +1779,8 @@ app.post('/api/test-endpoint', async (req, res) => {
                     JSON.stringify(parsedData),
                     JSON.stringify(respHeaders),
                     `${duration}ms`,
-                    'UI_User'
+                    'UI_User',
+                    req.body.collectionRunId || null
                 ]
             ).catch(err => console.error("Logging failed", err));
         }

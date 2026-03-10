@@ -7,15 +7,31 @@ import toast from 'react-hot-toast';
  * Pings all APIs in a list and shows live status (green/red/yellow) + response time.
  * Can be used inside ModuleViewer or ProjectDashboard.
  */
-export function ApiHealthMonitor({ apis = [], baseUrl = '', project, onClose }) {
+export function ApiHealthMonitor({ apis = [], baseUrl = '', project, onClose, selectedEnv = 'DEV' }) {
     const [results, setResults] = useState({});
     const [running, setRunning] = useState(false);
     const [progress, setProgress] = useState(0);
 
+    const resolveVariables = useCallback((val) => {
+        if (!val || typeof val !== 'string') return val;
+        try {
+            const gv = project.global_variables || project.globalVariables || {};
+            const parsedGv = typeof gv === 'string' ? JSON.parse(gv) : gv;
+            let pool = {};
+            if (selectedEnv && parsedGv[selectedEnv]) pool = parsedGv[selectedEnv];
+            else if (typeof parsedGv === 'object' && !Array.isArray(parsedGv)) pool = parsedGv;
+
+            return val.replace(/\{\{(\w+)\}\}/g, (_, key) => {
+                return pool[key] !== undefined ? pool[key] : `{{${key}}}`;
+            });
+        } catch (e) { return val; }
+    }, [project, selectedEnv]);
+
     const ping = useCallback(async (apiItem) => {
-        const url = baseUrl
-            ? baseUrl.replace(/\/$/, '') + (apiItem.url?.startsWith('/') ? apiItem.url : '/' + (apiItem.url || ''))
-            : apiItem.url;
+        const rawUrl = resolveVariables(apiItem.url || '');
+        const url = (rawUrl.startsWith('http') || !baseUrl)
+            ? rawUrl
+            : baseUrl.replace(/\/$/, '') + '/' + rawUrl.replace(/^\//, '');
 
         if (!url) return { status: 'skipped', duration: 0, error: 'No URL configured' };
 

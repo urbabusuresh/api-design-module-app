@@ -23,6 +23,19 @@ export const api = {
     updateProjectSettings: (id, settings) =>
         apiClient.put(`/projects/${id}`, { settings }),
 
+    // ── COLLECTIONS ───────────────────────────────────────────────────────
+    getCollections: (projectId) => apiClient.get(`/projects/${projectId}/collections`),
+
+    createCollection: (projectId, data) => apiClient.post(`/projects/${projectId}/collections`, data),
+
+    updateCollection: (id, data) => apiClient.put(`/collections/${id}`, data),
+
+    deleteCollection: (id) => apiClient.del(`/collections/${id}`),
+
+    saveCollectionRun: (collectionId, data) => apiClient.post(`/collections/${collectionId}/runs`, data),
+
+    getCollectionRuns: (projectId) => apiClient.get(`/projects/${projectId}/collection-runs`),
+
     updateProjectVariables: (id, variables) =>
         apiClient.put(`/projects/${id}/variables`, { variables }),
 

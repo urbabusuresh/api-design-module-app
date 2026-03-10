@@ -49,12 +49,12 @@ async function initDb() {
             host: dbConfig.host,
             user: dbConfig.user,
             port: dbConfig.port,
-            database: process.env.DB_NAME || 'raptr_dxp_db',
+            database: process.env.DB_NAME || 'raptr_test_api_design',
             hasPassword: !!dbConfig.password
         });
         // Create connection without DB selected to create DB if not exists
         const connection = await mysql.createConnection(dbConfig);
-        const dbName = process.env.DB_NAME || 'raptr_dxp_db';
+        const dbName = process.env.DB_NAME || 'raptr_test_api_design';
         await connection.query(`CREATE DATABASE IF NOT EXISTS ${dbName}`);
         await connection.end();
 

@@ -10,8 +10,9 @@ import ApplicationsManager from '../components/wso2/ApplicationsManager.jsx';
 import ApiProductsPanel from '../components/wso2/ApiProductsPanel.jsx';
 import DeploymentSummary from '../components/wso2/DeploymentSummary.jsx';
 import { api } from '../api';
+import { CollectionsManager } from '../components/dashboard/CollectionsManager';
 
-const Wso2ProjectDashboard = ({ project, onBack, onRefresh }) => {
+const Wso2ProjectDashboard = ({ project, onBack, onRefresh, mode = 'full' }) => {
     const rawApis = project?.systems?.[0]?.services?.[0]?.subApis || [];
 
     // Normalize: support both old DB shape { api_name, url, wso2_id } and new shape { name, context, id }
@@ -77,6 +78,42 @@ const Wso2ProjectDashboard = ({ project, onBack, onRefresh }) => {
         setSelectedService(null);
         setViewMode('services');
     };
+
+    if (mode === 'test') {
+        return (
+            <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
+                <header className="fixed top-0 left-0 right-0 h-16 border-b border-slate-800 bg-slate-900/80 backdrop-blur-xl flex items-center justify-between px-8 z-50">
+                    <div
+                        className="flex items-center space-x-3 cursor-pointer hover:bg-slate-800/50 transition-colors group px-3 py-1.5 rounded-xl border border-transparent hover:border-slate-700"
+                        onClick={onBack}
+                    >
+                        <div className="w-8 h-8 bg-gradient-to-br from-red-700 to-red-900 rounded-lg flex items-center justify-center shrink-0 shadow-lg shadow-red-900/20">
+                            <Waypoints className="text-white w-4 h-4" />
+                        </div>
+                        <div>
+                            <div className="text-[9px] text-slate-500 uppercase font-black tracking-[0.2em] opacity-80 leading-tight">Return to Workspaces</div>
+                            <div className="text-sm font-black text-white flex items-center gap-3">
+                                {project.name}
+                                <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-500 font-mono text-[9px] font-black uppercase tracking-widest border border-emerald-500/20">
+                                    360° Test Arena
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                        <div className="flex items-center space-x-2 bg-slate-950 border border-slate-800 p-1 rounded-lg shadow-inner">
+                            <Globe className="w-3.5 h-3.5 text-slate-500 ml-2" />
+                            <span className="text-[10px] font-bold text-slate-300 pr-3 py-1 uppercase tracking-widest">{project.env || 'REMOTE'}</span>
+                        </div>
+                    </div>
+                </header>
+                <main className="flex-1 mt-16 overflow-hidden">
+                    <CollectionsManager project={project} onRefresh={onRefresh} />
+                </main>
+            </div>
+        );
+    }
 
     return (
         <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">

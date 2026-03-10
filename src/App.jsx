@@ -12,6 +12,7 @@ function App() {
   const [user, setUser] = useState(null); // Auth State
   const [projects, setProjects] = useState([]);
   const [activeProject, setActiveProject] = useState(null);
+  const [dashboardMode, setDashboardMode] = useState('full'); // 'full' or 'test'
   const [loading, setLoading] = useState(false);
   const [view, setView] = useState('main'); // 'main' or 'admin-users'
 
@@ -79,57 +80,59 @@ function App() {
     }
   };
 
-  const handleSelectProject = async (projectSummary, silent = false) => {
+  const handleSelectProject = async (projectSummary, silent = false, mode = 'full') => {
     if (!silent) setLoading(true);
+    setDashboardMode(mode);
     try {
+      // 1. Always fetch full local metadata first (settings, modules, systems, globalVars etc)
+      const fullDbProject = await api.getProject(projectSummary.id);
+
       if (projectSummary.type === 'WSO2_REMOTE') {
-        // WSO2 Dynamic Fetch
+        // 2. WSO2 Dynamic Fetch
         const apis = await api.getWso2ProjectApis(projectSummary.id);
 
         // Construct Mock Project Structure for UI Compatibility
         const wso2System = { id: 'sys_wso2', name: 'WSO2 Gateway', status: 'Active' };
         const wso2Service = { id: 'svc_wso2', name: 'Published APIs', system_id: 'sys_wso2', version: 'v1', status: 'Active' };
 
-        // Attach APIs to Service
-        // For Dashboard Compatibility:
-        // 1. Service needs 'subApis' = [list of apis]
-        // 2. System needs 'rootApis' = [list of services] (Legacy naming in my dashboard)
-
         wso2Service.subApis = apis.map(a => ({
           id: a.id,
-          name: a.name || a.api_name || 'Unnamed API',   // new shape: name; old shape: api_name
-          url: a.url || a.context || '',                  // new shape: context; old shape: url
+          name: a.name || a.api_name || 'Unnamed API',
+          url: a.url || a.context || '',
           method: a.method || a.http_method || 'GET',
           description: a.description,
           status: a.status || a.lifeCycleStatus,
           version: a.version,
-          // WSO2 specific
           wso2_id: a.wso2_id || a.id,
           endpoint_config: a.endpoint_config || a.endpointConfig,
           api_type: a.api_type || a.type,
           provider: a.provider,
           operationCount: a.operationCount,
-          // Add extra fields needed for display
           module: 'WSO2',
           consumers: [],
           downstream: []
         }));
 
-        wso2System.rootApis = [wso2Service]; // "rootApis" in Dashboard maps to Services list
+        wso2System.rootApis = [wso2Service];
         wso2System.services = [wso2Service];
 
-        const fullProject = {
-          ...projectSummary,
-          systems: [wso2System],
-          settings: { categories: [] }
+        // Merge DB metadata with WSO2 dynamic data
+        const mergedProject = {
+          ...fullDbProject,
+          systems: [...(fullDbProject.systems || []), wso2System],
+          // Preserve settings from DB (categories, collections, etc)
+          settings: fullDbProject.settings || { categories: [] }
         };
-        setActiveProject(fullProject);
+        setActiveProject(mergedProject);
 
       } else {
         // Standard Local Project
-        const fullProject = await api.getProject(projectSummary.id);
-        setActiveProject(fullProject);
+        setActiveProject(fullDbProject);
       }
+      console.log("[App] Project metadata successfully refreshed:", {
+        id: fullDbProject.id,
+        collectionCount: fullDbProject.settings?.collections?.length || 0
+      });
     } catch (e) {
       console.error(e);
       toast.error('Failed to load project details: ' + e.message);
@@ -226,15 +229,17 @@ function App() {
       {activeProject.type === 'WSO2_REMOTE' ? (
         <Wso2ProjectDashboard
           project={activeProject}
-          onRefresh={() => handleSelectProject(activeProject, true)}
-          onBack={() => { setActiveProject(null); loadProjects(); }}
+          mode={dashboardMode}
+          onRefresh={() => handleSelectProject(activeProject, true, dashboardMode)}
+          onBack={() => { setActiveProject(null); loadProjects(); setDashboardMode('full'); }}
         />
       ) : (
         <ProjectDashboard
           project={activeProject}
           allProjects={projects}
-          onRefresh={() => handleSelectProject(activeProject, true)}
-          onBack={() => { setActiveProject(null); loadProjects(); }}
+          mode={dashboardMode}
+          onRefresh={() => handleSelectProject(activeProject, true, dashboardMode)}
+          onBack={() => { setActiveProject(null); loadProjects(); setDashboardMode('full'); }}
         />
       )}
     </>

@@ -26,10 +26,11 @@ import { NbSbMappingView } from '../components/dashboard/NbSbMappingView';
 import { TestDrawer } from '../components/dashboard/TestDrawer';
 import { EnvVariableManager } from '../components/dashboard/EnvVariableManager';
 import { Wso2ExposeDrawer } from '../components/dashboard/Wso2ExposeDrawer';
+import { CollectionsManager } from '../components/dashboard/CollectionsManager';
 import { useTheme } from '../ThemeContext.jsx';
 
 // Main Workspace Component (The Dashboard)
-export default function ProjectDashboard({ project, onBack, onRefresh, allProjects }) {
+export default function ProjectDashboard({ project, onBack, onRefresh, allProjects, mode = 'full' }) {
     const { theme, toggleTheme } = useTheme();
     const [currentView, setCurrentView] = useState('dashboard'); // dashboard, settings, testLogs, nbsbMap
     const [selectedSystemId, setSelectedSystemId] = useState(project.systems?.[0]?.id);
@@ -269,10 +270,13 @@ export default function ProjectDashboard({ project, onBack, onRefresh, allProjec
     const searchResults = getSearchResults();
 
     const handleUpdateSettings = async (newSettings) => {
+        console.log("[ProjectDashboard] Updating settings:", newSettings);
         try {
             await api.updateProjectSettings(project.id, newSettings);
+            console.log("[ProjectDashboard] Settings updated successfully, refreshing...");
             onRefresh();
         } catch (e) {
+            console.error("[ProjectDashboard] Failed to update settings:", e);
             toast.error('Failed to update settings');
         }
     };
@@ -319,6 +323,50 @@ export default function ProjectDashboard({ project, onBack, onRefresh, allProjec
                 });
         }
     }, [showSwaggerModal]);
+
+    if (mode === 'test') {
+        return (
+            <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
+                <header className="fixed top-0 left-0 right-0 h-16 border-b border-slate-800 bg-slate-900/80 backdrop-blur-xl flex items-center justify-between px-8 z-50">
+                    <div
+                        className="flex items-center space-x-3 cursor-pointer hover:bg-slate-800/50 transition-colors group px-3 py-1.5 rounded-xl border border-transparent hover:border-slate-700"
+                        onClick={onBack}
+                    >
+                        <div className="w-8 h-8 bg-gradient-to-br from-red-700 to-red-900 rounded-lg flex items-center justify-center shrink-0 shadow-lg shadow-red-900/20">
+                            <Waypoints className="text-white w-4 h-4" />
+                        </div>
+                        <div>
+                            <div className="text-[9px] text-slate-500 uppercase font-black tracking-[0.2em] opacity-80 leading-tight">Return to Workspaces</div>
+                            <div className="text-sm font-black text-white flex items-center gap-3">
+                                {project.name}
+                                <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-500 font-mono text-[9px] font-black uppercase tracking-widest border border-emerald-500/20">
+                                    360° Test Arena
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                        <div className="flex items-center space-x-2 bg-slate-950 border border-slate-800 p-1 rounded-lg shadow-inner">
+                            <Globe className="w-3.5 h-3.5 text-slate-500 ml-2" />
+                            <select
+                                value={selectedEnv}
+                                onChange={(e) => setSelectedEnv(e.target.value)}
+                                className="bg-transparent border-none text-[10px] font-bold text-slate-300 outline-none pr-6 pl-1 py-1 cursor-pointer hover:text-white transition-colors uppercase tracking-widest"
+                            >
+                                {environments.map(env => (
+                                    <option key={env} value={env} className="bg-slate-900 text-white">{env}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </div>
+                </header>
+                <main className="flex-1 mt-16 overflow-hidden">
+                    <CollectionsManager project={project} onRefresh={onRefresh} selectedEnv={selectedEnv} />
+                </main>
+            </div>
+        );
+    }
 
     return (
         <div className="flex h-screen bg-slate-950 text-slate-100 font-sans overflow-hidden">
@@ -474,17 +522,24 @@ export default function ProjectDashboard({ project, onBack, onRefresh, allProjec
                     </div>
 
                     {/* Additional Views */}
-                    <div className="px-2 mt-4 space-y-1">
-                        <button
-                            onClick={() => { setSelectedAuthView(false); setSelectedModuleId(null); setSelectedSystemId(null); setCurrentView('nbsbMap'); }}
-                            className={`w-full flex items-center ${isSidebarExpanded ? 'space-x-3 px-3' : 'justify-center'} p-2 rounded-xl transition-all duration-200 group
+                    <button
+                        onClick={() => { setSelectedAuthView(false); setSelectedModuleId(null); setSelectedSystemId(null); setCurrentView('collections'); }}
+                        className={`w-full flex items-center ${isSidebarExpanded ? 'space-x-3 px-3' : 'justify-center'} p-2 rounded-xl transition-all duration-200 group
+                                ${currentView === 'collections' ? 'bg-indigo-600/10 text-white border border-indigo-500/20 shadow-sm' : 'hover:bg-white/5 text-slate-400 hover:text-slate-200 border border-transparent'}`}
+                        data-tooltip-id="sidebar-tooltip" data-tooltip-content={!isSidebarExpanded ? "Collections" : ""}
+                    >
+                        <LayoutList className={`shrink-0 ${isSidebarExpanded ? 'w-4 h-4' : 'w-5 h-5'} ${currentView === 'collections' ? 'text-indigo-400' : 'text-slate-600'}`} />
+                        {isSidebarExpanded && <span className="text-sm font-medium truncate">Test Collections</span>}
+                    </button>
+                    <button
+                        onClick={() => { setSelectedAuthView(false); setSelectedModuleId(null); setSelectedSystemId(null); setCurrentView('nbsbMap'); }}
+                        className={`w-full flex items-center ${isSidebarExpanded ? 'space-x-3 px-3' : 'justify-center'} p-2 rounded-xl transition-all duration-200 group
                                 ${currentView === 'nbsbMap' ? 'bg-blue-600/10 text-white border border-blue-500/20 shadow-sm' : 'hover:bg-white/5 text-slate-400 hover:text-slate-200 border border-transparent'}`}
-                            data-tooltip-id="sidebar-tooltip" data-tooltip-content={!isSidebarExpanded ? "NB→SB Mapping" : ""}
-                        >
-                            <Share2 className={`shrink-0 ${isSidebarExpanded ? 'w-4 h-4' : 'w-5 h-5'} ${currentView === 'nbsbMap' ? 'text-blue-400' : 'text-slate-600'}`} />
-                            {isSidebarExpanded && <span className="text-sm font-medium truncate">NB→SB Mapping</span>}
-                        </button>
-                    </div>
+                        data-tooltip-id="sidebar-tooltip" data-tooltip-content={!isSidebarExpanded ? "NB→SB Mapping" : ""}
+                    >
+                        <Share2 className={`shrink-0 ${isSidebarExpanded ? 'w-4 h-4' : 'w-5 h-5'} ${currentView === 'nbsbMap' ? 'text-blue-400' : 'text-slate-600'}`} />
+                        {isSidebarExpanded && <span className="text-sm font-medium truncate">NB→SB Mapping</span>}
+                    </button>
                 </div>
 
                 <div className="p-3 border-t border-slate-800 space-y-1">
@@ -532,6 +587,8 @@ export default function ProjectDashboard({ project, onBack, onRefresh, allProjec
                     />
                 ) : currentView === 'testLogs' ? (
                     <TestLogsManager project={project} />
+                ) : currentView === 'collections' ? (
+                    <CollectionsManager project={project} onRefresh={onRefresh} selectedEnv={selectedEnv} />
                 ) : currentView === 'nbsbMap' ? (
                     <NbSbMappingView project={project} onExportLLD={async () => {
                         try {
@@ -555,6 +612,8 @@ export default function ProjectDashboard({ project, onBack, onRefresh, allProjec
                         environments={environments}
                         selectedEnv={selectedEnv}
                         onUpdate={handleUpdateModule}
+                        onUpdateSettings={handleUpdateSettings}
+                        onRefresh={onRefresh}
                         project={project}
                     />
                 ) : (

@@ -195,3 +195,15 @@ CREATE TABLE IF NOT EXISTS api_test_logs (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
+
+-- 11. Project Collections (NEW)
+-- Stores grouped APIs for regression testing
+CREATE TABLE IF NOT EXISTS project_collections (
+    id VARCHAR(50) PRIMARY KEY,
+    project_id VARCHAR(50) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    api_ids TEXT, -- Comma-separated list or JSON array of API IDs
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
